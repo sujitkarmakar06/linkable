@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { db } from "@/lib/db";
 import { urlOnDomain } from "@/lib/terms";
 import { cancelDeal, confirmLeg, DealError, placeLeg } from "@/server/deals";
+import { checkLeg } from "@/server/linkcheck";
 import { notifyWorkspace } from "@/server/notify";
 import { requireMembership } from "@/server/session";
 import type { FormState } from "./types";
@@ -23,9 +25,11 @@ export async function placeLegAction(_: FormState, form: FormData): Promise<Form
   const url = String(form.get("sourcePageUrl") ?? "").trim();
   if (!urlOnDomain(url, leg.fromSite.domain)) return { error: `The page must be on ${leg.fromSite.domain}.` };
   await placeLeg(leg, url);
-  await notifyWorkspace(leg.receiverWorkspaceId, { kind: "leg.placed", title: `Your link from ${leg.fromSite.domain} is placed`, body: `Check ${url} and confirm the link is live.`, path: `/app/deals/${leg.dealId}` }, { everyone: true });
+  await notifyWorkspace(leg.receiverWorkspaceId, { kind: "leg.placed", title: `Your link from ${leg.fromSite.domain} is placed`, body: `It's on ${url}. Our crawler is checking it now.`, path: `/app/deals/${leg.dealId}` }, { everyone: true });
+  // Check straight away; later checks run from the daily job.
+  after(() => checkLeg(leg.id).catch((err) => console.error("[linkcheck]", err)));
   revalidatePath(`/app/deals/${leg.dealId}`);
-  return { ok: "Marked as placed. The other side will confirm it." };
+  return { ok: "Marked as placed. We're checking the page now." };
 }
 
 export async function confirmLegAction(_: FormState, form: FormData): Promise<FormState> {

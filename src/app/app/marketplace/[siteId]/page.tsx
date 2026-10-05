@@ -19,10 +19,11 @@ export default async function PartnerSitePage({ params }: PageProps<"/app/market
   const { membership, workspace } = await requireMembership();
   const site = await db.site.findFirst({ where: { id: siteId, status: "APPROVED", workspaceId: { not: workspace.id } }, include: { workspace: true } });
   if (!site) notFound();
-  const [mine, theirs, settings] = await Promise.all([
+  const [mine, theirs, settings, rating] = await Promise.all([
     db.site.findMany({ where: { workspaceId: workspace.id, status: "APPROVED" }, orderBy: { domain: "asc" } }),
     db.site.findMany({ where: { workspaceId: site.workspaceId, status: "APPROVED" }, orderBy: { domain: "asc" } }),
     getSettings(),
+    db.review.aggregate({ where: { subjectWorkspaceId: site.workspaceId }, _avg: { rating: true }, _count: true }),
   ]);
   const price = priceLink({ domainRating: site.domainRating ?? 0, monthlyTraffic: site.organicTraffic, rel: "DOFOLLOW", placementType: "INSERTION" }, priceRules(settings));
   const myReceivers = mine.filter((s) => s.canReceive);
@@ -33,7 +34,7 @@ export default async function PartnerSitePage({ params }: PageProps<"/app/market
 
   return (
     <>
-      <PageHeader title={site.domain} description={`${site.niche} · listed by ${site.workspace.name} · reputation ${site.workspace.reputation}/100`} />
+      <PageHeader title={site.domain} description={`${site.niche} · listed by ${site.workspace.name} · reputation ${site.workspace.reputation}/100${rating._count ? ` · ${rating._avg.rating?.toFixed(1)}★ from ${rating._count} review${rating._count === 1 ? "" : "s"}` : ""}`} />
       <div className="flex max-w-3xl flex-col gap-4">
         <Card>
           <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">

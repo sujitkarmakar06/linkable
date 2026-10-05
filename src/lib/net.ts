@@ -29,13 +29,27 @@ const agent = new Agent({
 export const BOT_UA = `LinkableBot/1.0 (+${process.env.APP_URL ?? "http://localhost:3000"}/bot)`;
 const MAX_BYTES = 2 * 1024 * 1024;
 
-export type FetchResult = { ok: boolean; status: number; url: string; redirects: number; body: string; contentType: string };
+export type FetchResult = { ok: boolean; status: number; url: string; redirects: number; body: string; contentType: string; xRobotsTag: string | null };
+
+// Local testing only: FETCH_HOST_OVERRIDES="example.com=127.0.0.1:4555,..."
+// sends requests for those hosts to a local server over plain HTTP. Ignored in production.
+function hostOverride(url: URL): string | null {
+  if (process.env.NODE_ENV === "production" || !process.env.FETCH_HOST_OVERRIDES) return null;
+  const map = Object.fromEntries(process.env.FETCH_HOST_OVERRIDES.split(",").map((p) => p.trim().split("=") as [string, string]));
+  const target = map[url.hostname.replace(/^www\./, "")];
+  return target ? `http://${target}${url.pathname}${url.search}` : null;
+}
 
 // GET with manual redirect handling (max 5), a timeout and a body size cap.
 export async function safeGet(url: string, { maxRedirects = 5, timeoutMs = 15_000 } = {}): Promise<FetchResult> {
   let current = url;
   for (let redirects = 0; ; redirects++) {
     const parsed = new URL(current);
+    const override = hostOverride(parsed);
+    if (override) {
+      const res = await fetch(override, { redirect: "manual", headers: { "user-agent": BOT_UA }, signal: AbortSignal.timeout(timeoutMs) });
+      return { ok: res.ok, status: res.status, url: current, redirects, body: await res.text(), contentType: res.headers.get("content-type") ?? "", xRobotsTag: res.headers.get("x-robots-tag") };
+    }
     if (!["http:", "https:"].includes(parsed.protocol)) throw new Error(`Unsupported URL scheme: ${parsed.protocol}`);
     if (isIP(parsed.hostname.replace(/^\[|\]$/g, "")) && isPrivateIp(parsed.hostname.replace(/^\[|\]$/g, ""))) throw new Error("Refusing private address");
     const res = await fetch(current, {
@@ -52,7 +66,7 @@ export async function safeGet(url: string, { maxRedirects = 5, timeoutMs = 15_00
       continue;
     }
     const body = await readCapped(res.body);
-    return { ok: res.ok, status: res.status, url: current, redirects, body, contentType: res.headers.get("content-type") ?? "" };
+    return { ok: res.ok, status: res.status, url: current, redirects, body, contentType: res.headers.get("content-type") ?? "", xRobotsTag: res.headers.get("x-robots-tag") };
   }
 }
 

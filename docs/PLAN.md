@@ -40,8 +40,8 @@ Agreed with the product owner on 2026-10-05.
 | 1 | Sites: add, 4 ownership-verification methods, Ahrefs adapter, quality rules, admin review queue, starter credits | **Built** |
 | 2 | Credit ledger in use, link requests, manual ABC proposals, deals and legs, messaging | **Built** |
 | 3 | Matching engine + footprint guard (cron-triggered jobs) | **Built** |
-| 4 | Weekly link checker, escrow releases, penalties, disputes, reputation | Next |
-| 5 | Guest-post workflow + AI features | |
+| 4 | Weekly link checker, escrow releases, penalties, disputes, reputation | **Built** |
+| 5 | Guest-post workflow + AI features | Next |
 | 6 | Email notification set, admin analytics, reports/CSV export, security hardening, launch | |
 
 ## Risks
@@ -50,5 +50,6 @@ Agreed with the product owner on 2026-10-05.
 - Displaying Ahrefs metrics to the public may need a specific Ahrefs API plan/licence. Confirm before launch.
 - The Ahrefs adapter is written against the documented v3 endpoints but has not been run against the live API yet.
 - With 1 site per free workspace, manual ABC swaps need a second site on one side; free users trade through credits (requests/offers), which is non-reciprocal by design.
-- Until the Phase 4 crawler, links are confirmed by the receiving side; later escrow stages are scheduled but released by the Phase 4 job.
+- Removal penalties go to the receiver as compensation and may push the giver below zero; a negative balance blocks spending until earned back.
+- The crawler identifies as LinkableBot; sites with aggressive bot protection may need manual confirmation.
 - Login rate limiting needs a shared store on serverless (e.g. Upstash Redis); planned for Phase 6.

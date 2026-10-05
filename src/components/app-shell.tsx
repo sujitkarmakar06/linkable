@@ -59,6 +59,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
                 Admin
               </NavLink>
               <NavLink href="/admin/sites">Site reviews</NavLink>
+              <NavLink href="/admin/disputes">Disputes</NavLink>
             </>
           )}
         </nav>

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
-import { runMatchingNowAction, updateSettingsAction } from "@/server/actions/admin";
+import { runDailyNowAction, runMatchingNowAction, updateSettingsAction } from "@/server/actions/admin";
 import { ActionForm } from "@/components/action-form";
 import { Card, Field, Input, PageHeader } from "@/components/ui";
 
@@ -38,8 +38,11 @@ export default async function AdminPage() {
           </div>
         ))}
       </div>
-      <Card title="Matching" description={`${openRequests} open requests · ${liveMatches} live match offers. Runs hourly via cron and whenever a request is posted or a giving site is approved.`} className="mb-6 max-w-3xl">
+      <Card title="Matching" description={`${openRequests} open requests · ${liveMatches} live match offers. Runs via cron and whenever a request is posted or a giving site is approved.`} className="mb-6 max-w-3xl">
         <ActionForm action={runMatchingNowAction} submit="Run matching now" variant="secondary" />
+      </Card>
+      <Card title="Daily jobs" description="Overdue placements, link checks, scheduled escrow releases and deal completion. Runs daily via cron." className="mb-6 max-w-3xl">
+        <ActionForm action={runDailyNowAction} submit="Run daily jobs now" variant="secondary" />
       </Card>
       <Card title="Marketplace rules" description="Changes apply immediately, no deploy needed." className="max-w-3xl">
         <ActionForm action={updateSettingsAction} submit="Save rules">

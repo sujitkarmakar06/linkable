@@ -6,6 +6,7 @@ import { availableIn, lockWorkspaces, transferCredits } from "@/lib/ledger";
 import { getSettings } from "@/lib/settings";
 import { validateTerms, type Terms, type TermsSite } from "@/lib/terms";
 import { checkTerms } from "@/server/footprint";
+import { adjustReputation, REPUTATION } from "@/lib/reputation";
 
 export const LEG_DUE_DAYS = 14;
 
@@ -121,7 +122,7 @@ export async function acceptProposal(proposal: Proposal, userId: string): Promis
 
 // Release the first escrow stage now and schedule the rest (processed by the
 // Phase 4 job). Receiver's escrow -> giver's available balance.
-async function releaseOnVerify(tx: Prisma.TransactionClient, leg: DealLeg, userId: string) {
+export async function releaseOnVerify(tx: Prisma.TransactionClient, leg: DealLeg, userId: string | null) {
   if (leg.credits <= 0) return;
   const stages = releaseStages(leg.credits, new Date());
   for (const s of stages) {
@@ -134,13 +135,13 @@ async function releaseOnVerify(tx: Prisma.TransactionClient, leg: DealLeg, userI
         reason: "ESCROW_RELEASE",
         dealId: leg.dealId,
         note: "Link verified - first release",
-        createdById: userId,
+        createdById: userId ?? undefined,
       });
     await tx.escrowRelease.create({ data: { dealId: leg.dealId, legId: leg.id, amount: s.amount, releaseAt: s.releaseAt, releasedAt: now ? new Date() : null } });
   }
 }
 
-async function refundLeg(tx: Prisma.TransactionClient, leg: DealLeg, userId: string) {
+export async function refundLeg(tx: Prisma.TransactionClient, leg: DealLeg, userId: string | null) {
   const released = await tx.escrowRelease.aggregate({ where: { legId: leg.id, releasedAt: { not: null } }, _sum: { amount: true } });
   const remaining = leg.credits - (released._sum.amount ?? 0);
   await tx.escrowRelease.updateMany({ where: { legId: leg.id, releasedAt: null, cancelledAt: null }, data: { cancelledAt: new Date() } });
@@ -151,14 +152,14 @@ async function refundLeg(tx: Prisma.TransactionClient, leg: DealLeg, userId: str
       amount: remaining,
       reason: "ESCROW_REFUND",
       dealId: leg.dealId,
-      createdById: userId,
+      createdById: userId ?? undefined,
     });
 }
 
 export async function recomputeDealStatus(tx: Prisma.TransactionClient, dealId: string) {
   const deal = await tx.deal.findUniqueOrThrow({ where: { id: dealId }, include: { legs: true } });
   if (deal.status === "CANCELLED" || deal.status === "DISPUTED" || deal.status === "COMPLETED") return deal.status;
-  const active = deal.legs.filter((l) => l.status !== "CANCELLED");
+  const active = deal.legs.filter((l) => l.status !== "CANCELLED" && l.status !== "REMOVED");
   let status: DealStatus = deal.status;
   if (active.length === 0) status = "CANCELLED";
   else if (active.every((l) => l.status === "VERIFIED")) status = "LIVE";
@@ -175,6 +176,16 @@ export async function recomputeDealStatus(tx: Prisma.TransactionClient, dealId: 
   return status;
 }
 
+// First verification of a placed link (by the crawler or the receiver):
+// release the first escrow stage, reward on-time placement, fulfil the request.
+export async function markVerified(tx: Prisma.TransactionClient, leg: DealLeg, userId: string | null) {
+  await tx.dealLeg.update({ where: { id: leg.id }, data: { status: "VERIFIED", verifiedAt: new Date(), consecutiveFailures: 0, failingSince: null } });
+  await releaseOnVerify(tx, leg, userId);
+  if (leg.linkRequestId) await tx.linkRequest.update({ where: { id: leg.linkRequestId }, data: { status: "FULFILLED" } });
+  if (leg.placedAt && leg.dueAt && leg.placedAt <= leg.dueAt) await adjustReputation(tx, leg.giverWorkspaceId, REPUTATION.verifiedOnTime, "link placed on time", userId);
+  await recomputeDealStatus(tx, leg.dealId);
+}
+
 export async function placeLeg(leg: DealLeg, sourcePageUrl: string) {
   await db.$transaction(async (tx) => {
     await tx.dealLeg.update({ where: { id: leg.id }, data: { status: "PLACED", sourcePageUrl, placedAt: new Date() } });
@@ -187,10 +198,7 @@ export async function confirmLeg(leg: DealLeg, userId: string) {
     await lockWorkspaces(tx, [leg.giverWorkspaceId, leg.receiverWorkspaceId]);
     const fresh = await tx.dealLeg.findUniqueOrThrow({ where: { id: leg.id } });
     if (fresh.status !== "PLACED") throw new DealError("This link isn't waiting for confirmation.");
-    await tx.dealLeg.update({ where: { id: leg.id }, data: { status: "VERIFIED", verifiedAt: new Date() } });
-    await releaseOnVerify(tx, fresh, userId);
-    if (fresh.linkRequestId) await tx.linkRequest.update({ where: { id: fresh.linkRequestId }, data: { status: "FULFILLED" } });
-    await recomputeDealStatus(tx, leg.dealId);
+    await markVerified(tx, fresh, userId);
   });
 }
 
@@ -200,7 +208,7 @@ export async function cancelDeal(dealId: string, userId: string) {
     const deal = await tx.deal.findUniqueOrThrow({ where: { id: dealId }, include: { legs: true, participants: true } });
     await lockWorkspaces(tx, deal.participants.map((p) => p.workspaceId));
     const legs = await tx.dealLeg.findMany({ where: { dealId } });
-    if (legs.some((l) => ["PLACED", "VERIFIED"].includes(l.status))) throw new DealError("A link has already been placed. Open a dispute instead (coming in Phase 4).");
+    if (legs.some((l) => ["PLACED", "VERIFIED", "FAILING"].includes(l.status))) throw new DealError("A link has already been placed. Open a dispute instead.");
     if (deal.status === "CANCELLED") return;
     for (const leg of legs) {
       await refundLeg(tx, leg, userId);

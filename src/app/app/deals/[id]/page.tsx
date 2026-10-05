@@ -3,13 +3,14 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { hasRole } from "@/lib/roles";
 import { cancelDealAction, confirmLegAction, placeLegAction } from "@/server/actions/deals";
+import { openDisputeAction, submitReviewAction } from "@/server/actions/trust";
 import { requireMembership } from "@/server/session";
 import { ActionForm } from "@/components/action-form";
 import { DEAL_LABEL, LEG_LABEL, Pill } from "@/components/deal-status";
 import { Flash } from "@/components/flash";
 import { FootprintNotes } from "@/components/footprint-notes";
 import { Thread } from "@/components/thread";
-import { Card, Field, Input, PageHeader } from "@/components/ui";
+import { Alert, Card, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export const metadata: Metadata = { title: "Deal" };
 
@@ -21,9 +22,17 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
   const { membership, workspace } = await requireMembership();
   const deal = await db.deal.findFirst({
     where: { id, participants: { some: { workspaceId: workspace.id } } },
-    include: { legs: { include: { fromSite: true, toSite: true }, orderBy: { createdAt: "asc" } }, participants: { include: { workspace: true } } },
+    include: {
+      legs: { include: { fromSite: true, toSite: true, checks: { orderBy: { checkedAt: "desc" }, take: 5 } }, orderBy: { createdAt: "asc" } },
+      participants: { include: { workspace: true } },
+      disputes: { orderBy: { createdAt: "desc" } },
+      reviews: true,
+    },
   });
   if (!deal) notFound();
+  const openDispute = deal.disputes.find((d) => d.status === "OPEN");
+  const myReview = deal.reviews.find((r) => r.authorWorkspaceId === workspace.id);
+  const canDispute = !["CANCELLED", "COMPLETED", "DISPUTED"].includes(deal.status);
   const names = new Map(deal.participants.map((p) => [p.workspaceId, p.workspace.name]));
   const canAct = hasRole(membership.role, "MEMBER");
   const cancellable = !["CANCELLED", "COMPLETED"].includes(deal.status) && deal.legs.every((l) => !["PLACED", "VERIFIED"].includes(l.status));
@@ -35,6 +44,18 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
       </PageHeader>
       <div className="flex max-w-3xl flex-col gap-4">
         <Flash done={done} />
+        {openDispute && (
+          <Alert tone="error">
+            Disputed by {names.get(openDispute.openedByWorkspaceId)}: {openDispute.reason} An admin is reviewing it; link checks and escrow releases are paused.
+          </Alert>
+        )}
+        {deal.disputes
+          .filter((d) => d.status !== "OPEN")
+          .map((d) => (
+            <Alert key={d.id} tone="success">
+              Dispute {d.status === "RESOLVED" ? "resolved" : "closed"}: {d.resolution}
+            </Alert>
+          ))}
         <FootprintNotes title="Footprint warnings" result={{ blocks: [], warnings: (deal.footprint as { warnings?: string[] } | null)?.warnings ?? [] }} />
         {deal.legs.map((leg, i) => {
           const giving = leg.giverWorkspaceId === workspace.id;
@@ -90,11 +111,25 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
                   </ActionForm>
                 </div>
               )}
+              {leg.checks.length > 0 && (
+                <div className="mt-4 border-t border-border pt-3 text-sm">
+                  <div className="mb-1 font-medium">Recent checks</div>
+                  <ul className="flex flex-col gap-1 text-muted">
+                    {leg.checks.map((c) => (
+                      <li key={c.id}>
+                        {c.checkedAt.toISOString().slice(0, 16).replace("T", " ")} UTC ·{" "}
+                        {c.error ? <span className="text-danger">{c.error}</span> : <span className="text-success">link found{c.anchorMatch === false ? " (different anchor)" : ""}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                  {leg.status === "FAILING" && leg.failingSince && <p className="mt-1 text-danger">Failing since {day(leg.failingSince)}. Restore the link before the grace period ends to avoid a penalty.</p>}
+                </div>
+              )}
               {canAct && receiving && leg.status === "PLACED" && (
                 <div className="mt-4 border-t border-border pt-4">
-                  <ActionForm action={confirmLegAction} submit="Confirm the link is live">
+                  <ActionForm action={confirmLegAction} submit="Confirm manually" variant="secondary">
                     <input type="hidden" name="legId" value={leg.id} />
-                    <p className="text-sm text-muted">Open the page above and check the link, anchor and rel. Automatic weekly checks start in Phase 4.</p>
+                    <p className="text-sm text-muted">Our crawler checks placed links automatically. If it can&apos;t reach the page (for example, bot protection) and you can see the link, confirm it here.</p>
                   </ActionForm>
                 </div>
               )}
@@ -106,6 +141,51 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
           <Card title="Cancel deal" description="Possible until a link has been placed. Escrowed credits are returned.">
             <ActionForm action={cancelDealAction} submit="Cancel this deal" variant="danger">
               <input type="hidden" name="dealId" value={deal.id} />
+            </ActionForm>
+          </Card>
+        )}
+
+        {canAct && ["LIVE", "COMPLETED"].includes(deal.status) && !myReview && (
+          <Card title="Review your partner" description="Ratings feed into their reputation score.">
+            <ActionForm action={submitReviewAction} submit="Submit review" variant="secondary">
+              <input type="hidden" name="dealId" value={deal.id} />
+              <Field label="Rating">
+                <Select name="rating" defaultValue="5">
+                  {[5, 4, 3, 2, 1].map((n) => (
+                    <option key={n} value={n}>
+                      {"★".repeat(n)} ({n})
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <textarea name="comment" rows={2} maxLength={1000} placeholder="Optional comment" aria-label="Comment" className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm" />
+            </ActionForm>
+          </Card>
+        )}
+
+        {myReview && (
+          <Card title="Your review">
+            <p className="text-sm">
+              You rated {names.get(myReview.subjectWorkspaceId)} {"★".repeat(myReview.rating)} ({myReview.rating}/5){myReview.comment ? `: "${myReview.comment}"` : "."}
+            </p>
+          </Card>
+        )}
+
+        {canAct && canDispute && deal.legs.some((l) => l.status !== "PENDING" || (l.dueAt && l.dueAt < new Date())) && (
+          <Card title="Something wrong?" description="Open a dispute and an admin will decide. Link checks and escrow releases pause until then.">
+            <ActionForm action={openDisputeAction} submit="Open a dispute" variant="danger">
+              <input type="hidden" name="dealId" value={deal.id} />
+              <Field label="Which link">
+                <Select name="legId">
+                  <option value="">The whole deal</option>
+                  {deal.legs.map((l, i) => (
+                    <option key={l.id} value={l.id}>
+                      {i + 1}. {l.fromSite.domain} → {l.toSite.domain}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <textarea name="reason" rows={3} minLength={10} maxLength={4000} required placeholder="What happened?" aria-label="Reason" className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm" />
             </ActionForm>
           </Card>
         )}

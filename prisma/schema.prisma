@@ -473,6 +473,10 @@ model DealLeg {
   placedAt            DateTime?
   verifiedAt          DateTime?
   failingSince        DateTime?
+  consecutiveFailures Int           @default(0)
+  lastCheckedAt       DateTime?
+  overdueNotifiedAt   DateTime?
+  removedAt           DateTime?
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
@@ -632,6 +636,8 @@ model Dispute {
   openedByWorkspaceId String
   againstWorkspaceId  String
   reason              String
+  // Deal status before the dispute, restored when it is resolved.
+  previousDealStatus  DealStatus?
   status              DisputeStatus @default(OPEN)
   resolution          String?
   resolvedById        String?

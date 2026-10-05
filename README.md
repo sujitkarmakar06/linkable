@@ -8,7 +8,22 @@ Every placed link is checked weekly and guaranteed for 12 months.
 
 See [`docs/PLAN.md`](docs/PLAN.md) for the full product plan and roadmap.
 
-## Status: Phase 3 (matching + footprint guard) built
+## Status: Phase 4 (trust: link checks, escrow, penalties, disputes) built
+
+Phase 4:
+- Link crawler: checks a link as soon as it's marked placed, then every 7 days (daily while failing).
+  It confirms the link exists, the anchor, dofollow vs nofollow/sponsored/ugc, noindex (meta or
+  X-Robots-Tag) and a foreign canonical. Receivers can still confirm manually if the crawler is blocked.
+- Lifecycle: 2 failed checks -> FAILING + email to both sides -> 7-day grace -> restored, or REMOVED:
+  unreleased escrow refunded, a 2-credit penalty paid to the receiver (the giver's balance may go
+  negative), -15 reputation; 3 removals in 12 months auto-suspends the workspace
+- Scheduled escrow releases (3/6/12 months) paid by the daily job; held while a link fails or a deal is disputed
+- Deals complete when the guarantee ends with every link live
+- Overdue placements flagged once (both sides emailed, -5 reputation)
+- Disputes: either side opens one (pauses checks and releases); admins dismiss, refund, or refund and penalise
+- Reviews (1-5 stars) after a deal is live; ratings move reputation and show on partner pages
+- Reputation events: +2 on-time placement, +3 completed deal, -5 overdue, -15 removal, -10 lost dispute, ±4 reviews
+- Admin: Disputes page, "Run daily jobs now"
 
 Phase 3:
 - Automatic matching: each open request (with "Match automatically" on) is offered to the 3 best
@@ -56,7 +71,7 @@ Phase 0:
   double-entry credit ledger, escrow releases, link checks, disputes, reviews, audit log)
 - Credit pricing and escrow-release logic, with unit tests
 
-Next: Phase 4, weekly link checker, escrow releases, penalties, disputes and reputation.
+Next: Phase 5, guest-post workflow and AI features (anchors, placement pages, drafts).
 
 ## Stack
 Next.js 16 (App Router, server actions) · TypeScript · Tailwind CSS 4 · Prisma 6 + PostgreSQL ·
@@ -72,6 +87,10 @@ npm run dev                 # http://localhost:3000
 ```
 Without `RESEND_API_KEY`, emails (verification, reset, invites) are printed to the
 terminal with their link, so you can click through locally.
+
+### Testing link checks locally
+Outbound checks refuse private addresses. For local testing only (ignored when `NODE_ENV=production`),
+`FETCH_HOST_OVERRIDES="partner.com=127.0.0.1:4555"` sends requests for that domain to a local server.
 
 ## Checks
 ```bash
@@ -91,9 +110,10 @@ CI (`.github/workflows/ci.yml`) runs the same steps against a Postgres service.
    `https://<your-domain>/api/gsc/callback` (Search Console verification), and enable the
    "Google Search Console API" for the project.
 6. Resend: verify your sending domain and set `EMAIL_FROM` to an address on it.
-7. Cron: set `CRON_SECRET` (any long random string). Vercel sends it to `/api/cron/matching`.
-   The hourly schedule in `vercel.json` needs a Vercel Pro plan; Hobby allows daily crons only
-   (matching still runs instantly on new requests and approvals, and Admin has "Run matching now").
+7. Cron: set `CRON_SECRET` (any long random string). Vercel sends it to `/api/cron/matching`
+   and `/api/cron/daily`. `vercel.json` schedules both once a day so it deploys on the Hobby plan;
+   on Pro, change matching to hourly (`0 * * * *`). Matching also runs instantly on new requests
+   and approvals, and Admin has "Run matching now" / "Run daily jobs now".
 8. Ahrefs: set `AHREFS_API_KEY`. Without it, admins enter DR and traffic by hand during review.
    The adapter targets the v3 Site Explorer `domain-rating` and `metrics` endpoints; do one
    test lookup after adding the key to confirm the response shape.

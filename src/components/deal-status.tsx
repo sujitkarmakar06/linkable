@@ -16,7 +16,7 @@ export const LEG_LABEL: Record<LegStatus, string> = {
   CONTENT_APPROVED: "Content approved",
   PLACED: "Placed - waiting for confirmation",
   VERIFIED: "Live",
-  FAILING: "Failing checks",
+  FAILING: "Failing checks - in grace period",
   REMOVED: "Removed",
   CANCELLED: "Cancelled",
 };

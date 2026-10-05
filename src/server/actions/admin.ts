@@ -40,3 +40,12 @@ export async function runMatchingNowAction(): Promise<FormState> {
   revalidatePath("/admin");
   return { ok: `Checked ${r.requests} open requests: ${r.created} new matches, ${r.expired} expired.` };
 }
+
+export async function runDailyNowAction(): Promise<FormState> {
+  const admin = await requireAdmin();
+  const { runDaily } = await import("@/server/jobs");
+  const r = await runDaily();
+  await db.auditLog.create({ data: { actorId: admin.id, action: "admin.daily_run", meta: r } });
+  revalidatePath("/admin");
+  return { ok: `Overdue flagged: ${r.overdue}. Links checked: ${r.checks.checked} (${r.checks.ok} ok, ${r.checks.failed} failing). Escrow releases: ${r.released}. Deals completed: ${r.completed}.` };
+}
