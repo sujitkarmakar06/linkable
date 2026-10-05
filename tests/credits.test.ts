@@ -29,12 +29,15 @@ describe("priceLink", () => {
 });
 
 describe("releaseStages", () => {
-  it("releases 40/20/20/20 and always sums to the total", () => {
+  it("releases ~40/20/20/20, holds back small amounts and always sums to the total", () => {
     const start = new Date("2026-01-15T00:00:00Z");
     for (const total of [1, 2, 3, 7, 8, 10, 13]) {
       const stages = releaseStages(total, start);
       expect(stages.reduce((s, x) => s + x.amount, 0)).toBe(total);
     }
+    expect(releaseStages(1, start).map((s) => [s.afterMonths, s.amount])).toEqual([[3, 1]]);
+    expect(releaseStages(2, start).map((s) => [s.afterMonths, s.amount])).toEqual([[0, 1], [6, 1]]);
+    expect(releaseStages(4, start).map((s) => s.amount)).toEqual([2, 1, 1]);
     const stages = releaseStages(10, start);
     expect(stages.map((s) => s.amount)).toEqual([4, 2, 2, 2]);
     expect(stages.map((s) => s.releaseAt.toISOString().slice(0, 10))).toEqual(["2026-01-15", "2026-04-15", "2026-07-15", "2027-01-15"]);

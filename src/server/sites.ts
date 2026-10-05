@@ -2,13 +2,13 @@ import "server-only";
 import { resolve4, resolveTxt } from "node:dns/promises";
 import { Prisma, type Site, type VerificationMethod } from "@prisma/client";
 import { db } from "@/lib/db";
-import { appUrl, sendEmail } from "@/lib/email";
 import { transferCredits } from "@/lib/ledger";
 import { getSitePage } from "@/lib/net";
 import { evaluateSite } from "@/lib/quality";
 import { getDomainMetrics } from "@/lib/seo";
 import { getSettings } from "@/lib/settings";
 import { analyseHomepage, metricSignals, spamScore, type SpamSignal } from "@/lib/spam";
+import { notifyWorkspace } from "@/server/notify";
 import { verifyDnsTxt, verifyHtmlFile, verifyMetaTag, type VerifyOutcome } from "@/lib/verification";
 
 const pageGetter = async (domain: string, path: string) => getSitePage(domain, path);
@@ -100,20 +100,13 @@ export async function assessSite(siteId: string, { forceMetrics = false } = {}) 
 }
 
 export async function notifySiteDecision(workspaceId: string, domain: string, siteId: string, decision: "approved" | "rejected" | "suspended", note?: string | null) {
-  const admins = await db.membership.findMany({ where: { workspaceId, role: { in: ["OWNER", "ADMIN"] } }, include: { user: true } });
   const body =
     decision === "approved"
-      ? `${domain} is approved and now listed on Linkable.`
+      ? `${domain} is approved and now listed on Linkable. ${note ?? ""}`
       : decision === "rejected"
         ? `${domain} wasn't approved. ${note ?? ""}`
         : `${domain} has been suspended. ${note ?? ""}`;
-  const title = `${domain} was ${decision}`;
-  await Promise.all(
-    admins.map(async (m) => {
-      await db.notification.create({ data: { userId: m.userId, kind: `site.${decision}`, title, body, url: `/app/sites/${siteId}`, emailedAt: new Date() } });
-      await sendEmail(m.user.email, title, title, body, { label: "View site", url: appUrl(`/app/sites/${siteId}`) }).catch((err) => console.error("[email]", err));
-    }),
-  );
+  await notifyWorkspace(workspaceId, { kind: `site.${decision}`, title: `${domain} was ${decision}`, body: body.trim(), path: `/app/sites/${siteId}` });
 }
 
 // Grants starter credits the first time any site in the workspace is approved.

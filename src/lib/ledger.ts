@@ -30,3 +30,14 @@ export async function getBalances(workspaceId: string) {
   const sum = (b: CreditBucket) => rows.find((r) => r.bucket === b)?._sum.amount ?? 0;
   return { available: sum("AVAILABLE"), escrow: sum("ESCROW") };
 }
+
+// Available balance read inside a transaction (call after locking the workspace row).
+export async function availableIn(tx: Prisma.TransactionClient, workspaceId: string): Promise<number> {
+  const r = await tx.creditEntry.aggregate({ where: { workspaceId, bucket: "AVAILABLE" }, _sum: { amount: true } });
+  return r._sum.amount ?? 0;
+}
+
+// Row locks in a stable order so two transactions never deadlock.
+export async function lockWorkspaces(tx: Prisma.TransactionClient, ids: string[]) {
+  for (const id of [...new Set(ids)].sort()) await tx.$queryRaw`SELECT id FROM "Workspace" WHERE id = ${id} FOR UPDATE`;
+}

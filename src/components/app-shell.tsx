@@ -5,16 +5,12 @@ import { switchWorkspaceAction } from "@/server/actions/workspace";
 import { getCurrentMembership, requireUser } from "@/server/session";
 import { Logo } from "./logo";
 import { NavLink } from "./nav-link";
-import { Badge } from "./ui";
-
-// Planned sections are listed (greyed) so the roadmap is visible, but they
-// aren't links until their phase ships.
-const UPCOMING = ["Link requests", "Deals", "Credits"];
 
 export async function AppShell({ children }: { children: ReactNode }) {
   const user = await requireUser();
   const current = await getCurrentMembership();
   const memberships = await db.membership.findMany({ where: { userId: user.id }, include: { workspace: true }, orderBy: { createdAt: "asc" } });
+  const pending = current ? await db.proposal.count({ where: { awaitingWorkspaceId: current.workspaceId, status: "OPEN" } }) : 0;
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
@@ -41,12 +37,14 @@ export async function AppShell({ children }: { children: ReactNode }) {
           <NavLink href="/app" exact>
             Dashboard
           </NavLink>
-          <NavLink href="/app/sites">Sites</NavLink>
-          {UPCOMING.map((label) => (
-            <span key={label} className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm text-muted/60">
-              {label} <Badge>soon</Badge>
-            </span>
-          ))}
+          <NavLink href="/app/marketplace">Marketplace</NavLink>
+          <NavLink href="/app/sites">My sites</NavLink>
+          <NavLink href="/app/requests">Link requests</NavLink>
+          <NavLink href="/app/proposals">
+            Proposals {pending > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-xs text-accent-fg">{pending}</span>}
+          </NavLink>
+          <NavLink href="/app/deals">Deals</NavLink>
+          <NavLink href="/app/credits">Credits</NavLink>
           <NavLink href="/app/workspace">Workspace</NavLink>
           <NavLink href="/app/account">Account</NavLink>
           {user.platformRole === "ADMIN" && (

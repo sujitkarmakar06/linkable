@@ -301,9 +301,10 @@ model LinkRequest {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  site      Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  site      Site       @relation(fields: [siteId], references: [id], onDelete: Cascade)
   legs      DealLeg[]
+  proposals Proposal[]
 
   @@index([status])
   @@index([workspaceId])
@@ -315,7 +316,20 @@ model LinkRequest {
 
 enum DealSource {
   AUTO_MATCH // credit-based, created by the matching engine
-  PROPOSAL // manual ABC proposal between two workspaces
+  PROPOSAL // manual ABC swap proposal between two workspaces
+  REQUEST_OFFER // a giver offered to fulfil someone's link request for credits
+}
+
+enum ProposalKind {
+  SWAP // both sides give links (ABC structure enforced)
+  REQUEST_OFFER // one link for credits, answering a LinkRequest
+}
+
+enum ProposalStatus {
+  OPEN
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
 }
 
 enum DealStatus {
@@ -340,20 +354,30 @@ enum LegStatus {
 }
 
 model Proposal {
-  id              String   @id @default(cuid())
-  fromWorkspaceId String
-  toWorkspaceId   String
-  // The proposed legs, as JSON until accepted; acceptance creates the Deal.
-  terms           Json
-  status          String   @default("open") // open / countered / accepted / declined / withdrawn
-  dealId          String?  @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                  String         @id @default(cuid())
+  kind                ProposalKind   @default(SWAP)
+  fromWorkspaceId     String
+  toWorkspaceId       String
+  // Whose move it is. Countering flips it to the other side.
+  awaitingWorkspaceId String
+  linkRequestId       String?
+  // The proposed legs (see lib/terms.ts), as JSON until accepted; acceptance creates the Deal.
+  terms               Json
+  revision            Int            @default(1)
+  status              ProposalStatus @default(OPEN)
+  dealId              String?        @unique
+  createdById         String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
-  fromWorkspace Workspace @relation("ProposalFrom", fields: [fromWorkspaceId], references: [id], onDelete: Cascade)
-  toWorkspace   Workspace @relation("ProposalTo", fields: [toWorkspaceId], references: [id], onDelete: Cascade)
-  deal          Deal?     @relation(fields: [dealId], references: [id])
+  fromWorkspace Workspace    @relation("ProposalFrom", fields: [fromWorkspaceId], references: [id], onDelete: Cascade)
+  toWorkspace   Workspace    @relation("ProposalTo", fields: [toWorkspaceId], references: [id], onDelete: Cascade)
+  linkRequest   LinkRequest? @relation(fields: [linkRequestId], references: [id], onDelete: SetNull)
+  deal          Deal?        @relation(fields: [dealId], references: [id])
   messages      Message[]
+
+  @@index([fromWorkspaceId, status])
+  @@index([toWorkspaceId, status])
 }
 
 model Deal {
@@ -389,24 +413,28 @@ model DealParticipant {
 }
 
 model DealLeg {
-  id            String        @id @default(cuid())
-  dealId        String
-  fromSiteId    String // site hosting the link
-  toSiteId      String // site being linked to
-  linkRequestId String?
-  targetUrl     String
-  anchor        String
-  rel           LinkRel       @default(DOFOLLOW)
-  placementType PlacementType @default(INSERTION)
-  sourcePageUrl String? // filled when placed
-  credits       Int           @default(0)
-  status        LegStatus     @default(PENDING)
-  dueAt         DateTime?
-  placedAt      DateTime?
-  verifiedAt    DateTime?
-  failingSince  DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                  String        @id @default(cuid())
+  dealId              String
+  fromSiteId          String // site hosting the link
+  toSiteId            String // site being linked to
+  linkRequestId       String?
+  // Denormalised so a leg's parties survive site edits; the receiver pays
+  // `credits` to the giver (through escrow).
+  giverWorkspaceId    String
+  receiverWorkspaceId String
+  targetUrl           String
+  anchor              String
+  rel                 LinkRel       @default(DOFOLLOW)
+  placementType       PlacementType @default(INSERTION)
+  sourcePageUrl       String? // filled when placed
+  credits             Int           @default(0)
+  status              LegStatus     @default(PENDING)
+  dueAt               DateTime?
+  placedAt            DateTime?
+  verifiedAt          DateTime?
+  failingSince        DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
   deal        Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
   fromSite    Site         @relation("LegFromSite", fields: [fromSiteId], references: [id])

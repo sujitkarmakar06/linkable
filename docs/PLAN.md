@@ -15,7 +15,7 @@ Agreed with the product owner on 2026-10-05.
 | Quality | Min DR 30, min 500 monthly organic visits, banned niches (casino, gambling, adult, pharma, CBD, crypto, loans), spam/PBN scoring, reputation and penalties |
 | Content | Link insertions, guest posts, AI help (anchors, placement pages, drafts via Claude API) |
 | Credit pricing | DR tiers: 30-39 = 1, 40-59 = 2, 60-79 = 4, 80+ = 8; traffic x0.75 (<1k) / x1.25 (50k+); nofollow x0.25; guest post +1 |
-| Guarantee | 12 months, weekly checks; escrow released 40% on verification, then 20% at 3, 6 and 12 months |
+| Guarantee | 12 months, weekly checks; escrow released ~40% on verification, then 20% at 3, 6 and 12 months (cumulative rounding: a 1-credit link releases at 3 months, 2 credits = 1 now + 1 at 6 months) |
 | Removal | 2 failed checks -> email both sides -> 7-day grace -> refund unreleased credits to requester, penalty to giver, reputation hit; repeat offenders suspended |
 | Free plan | 1 site per workspace, 3 open link requests, 2 starter credits after first site approval |
 | Notifications | Email (Resend) |
@@ -38,8 +38,8 @@ Agreed with the product owner on 2026-10-05.
 |---|---|---|
 | 0 | Repo, CI, auth (email, Google, 2FA), workspaces and roles, admin rules, full schema | **Built** |
 | 1 | Sites: add, 4 ownership-verification methods, Ahrefs adapter, quality rules, admin review queue, starter credits | **Built** |
-| 2 | Credit ledger in use, link requests, manual ABC proposals, deals and legs, messaging | Next |
-| 3 | Matching engine + footprint guard (Inngest jobs) | |
+| 2 | Credit ledger in use, link requests, manual ABC proposals, deals and legs, messaging | **Built** |
+| 3 | Matching engine + footprint guard (Inngest jobs) | Next |
 | 4 | Weekly link checker, escrow releases, penalties, disputes, reputation | |
 | 5 | Guest-post workflow + AI features | |
 | 6 | Email notification set, admin analytics, reports/CSV export, security hardening, launch | |
@@ -49,4 +49,6 @@ Agreed with the product owner on 2026-10-05.
   routing and quality controls reduce but don't remove the risk; the Terms of Service must say so.
 - Displaying Ahrefs metrics to the public may need a specific Ahrefs API plan/licence. Confirm before launch.
 - The Ahrefs adapter is written against the documented v3 endpoints but has not been run against the live API yet.
+- With 1 site per free workspace, manual ABC swaps need a second site on one side; free users trade through credits (requests/offers), which is non-reciprocal by design.
+- Until the Phase 4 crawler, links are confirmed by the receiving side; later escrow stages are scheduled but released by the Phase 4 job.
 - Login rate limiting needs a shared store on serverless (e.g. Upstash Redis); planned for Phase 6.

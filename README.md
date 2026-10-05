@@ -8,7 +8,20 @@ Every placed link is checked weekly and guaranteed for 12 months.
 
 See [`docs/PLAN.md`](docs/PLAN.md) for the full product plan and roadmap.
 
-## Status: Phase 1 (sites) built
+## Status: Phase 2 (deals) built
+
+Phase 2:
+- Marketplace: browse approved sites from other workspaces (niche, DR, domain filters) and open link requests
+- Link requests: ask for a link to one of your sites with anchors, niches, min DR and a credit budget
+  (free plan: 3 open at a time)
+- Offers: other workspaces offer a link from a matching site at the DR-tier price
+- ABC swap proposals: their site links to yours, you link back from a different site; reciprocal
+  A<->B swaps are refused. Counter-offers flip the turn; accepts re-check sites and balances
+- Deals: givers mark links placed (page must be on their domain), receivers confirm them live,
+  either side can cancel before placement; per-deal message threads
+- Credits: escrow locked on accept, released in stages (about 40% on confirmation, then 3/6/12 months),
+  refunded on cancel; full ledger history on the Credits page
+- Email + in-app notifications for proposals, counters, accepts, placements, confirmations and messages
 
 Phase 1:
 - Add sites (domain normalised, niche from a fixed list, give/receive roles, monthly outbound cap)
@@ -31,7 +44,7 @@ Phase 0:
   double-entry credit ledger, escrow releases, link checks, disputes, reviews, audit log)
 - Credit pricing and escrow-release logic, with unit tests
 
-Next: Phase 2, link requests, manual ABC proposals, deals and messaging.
+Next: Phase 3, automatic matching engine and footprint guard.
 
 ## Stack
 Next.js 16 (App Router, server actions) · TypeScript · Tailwind CSS 4 · Prisma 6 + PostgreSQL ·
