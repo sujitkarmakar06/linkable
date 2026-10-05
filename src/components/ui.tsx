@@ -40,12 +40,12 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   );
 }
 
-export function Card({ title, description, children, className }: { title?: string; description?: string; children: ReactNode; className?: string }) {
+export function Card({ title, description, children, className }: { title?: string; description?: string; children?: ReactNode; className?: string }) {
   return (
     <section className={cx("rounded-xl border border-border bg-surface p-5", className)}>
       {title && <h2 className="font-semibold">{title}</h2>}
       {description && <p className="mt-1 text-sm text-muted">{description}</p>}
-      <div className={title || description ? "mt-4" : ""}>{children}</div>
+      {children != null && <div className={title || description ? "mt-4" : ""}>{children}</div>}
     </section>
   );
 }

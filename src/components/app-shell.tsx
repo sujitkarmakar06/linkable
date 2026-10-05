@@ -9,7 +9,7 @@ import { Badge } from "./ui";
 
 // Planned sections are listed (greyed) so the roadmap is visible, but they
 // aren't links until their phase ships.
-const UPCOMING = ["Sites", "Link requests", "Deals", "Credits"];
+const UPCOMING = ["Link requests", "Deals", "Credits"];
 
 export async function AppShell({ children }: { children: ReactNode }) {
   const user = await requireUser();
@@ -41,6 +41,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
           <NavLink href="/app" exact>
             Dashboard
           </NavLink>
+          <NavLink href="/app/sites">Sites</NavLink>
           {UPCOMING.map((label) => (
             <span key={label} className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm text-muted/60">
               {label} <Badge>soon</Badge>
@@ -48,7 +49,14 @@ export async function AppShell({ children }: { children: ReactNode }) {
           ))}
           <NavLink href="/app/workspace">Workspace</NavLink>
           <NavLink href="/app/account">Account</NavLink>
-          {user.platformRole === "ADMIN" && <NavLink href="/admin">Admin</NavLink>}
+          {user.platformRole === "ADMIN" && (
+            <>
+              <NavLink href="/admin" exact>
+                Admin
+              </NavLink>
+              <NavLink href="/admin/sites">Site reviews</NavLink>
+            </>
+          )}
         </nav>
         <div className="mt-auto flex items-center justify-between gap-2 border-t border-border pt-4 text-sm">
           <span className="truncate text-muted" title={user.email}>

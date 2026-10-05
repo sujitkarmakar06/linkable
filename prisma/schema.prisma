@@ -227,9 +227,16 @@ model Site {
   verificationToken  String              @unique
   verificationMethod VerificationMethod?
   verifiedAt         DateTime?
+  // Set to `domain` once ownership is proven. Unique, so only one workspace
+  // can hold a verified claim on a domain while unverified claims can coexist
+  // (stops someone squatting a domain they don't own).
+  verifiedDomain     String?             @unique
+  lastVerifyAt       DateTime?
+  lastVerifyError    String?
   status             SiteStatus          @default(DRAFT)
   reviewNote         String?
   reviewedAt         DateTime?
+  reviewedById       String?
 
   // Metrics come from the SEO provider (Ahrefs first) and are cached.
   domainRating     Int?
@@ -253,8 +260,8 @@ model Site {
   legsGiven    DealLeg[]     @relation("LegFromSite")
   legsReceived DealLeg[]     @relation("LegToSite")
 
-  @@unique([domain])
-  @@index([workspaceId])
+  @@unique([workspaceId, domain])
+  @@index([domain])
   @@index([status, niche])
 }
 

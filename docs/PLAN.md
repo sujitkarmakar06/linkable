@@ -37,8 +37,8 @@ Agreed with the product owner on 2026-10-05.
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Repo, CI, auth (email, Google, 2FA), workspaces and roles, admin rules, full schema | **Built** |
-| 1 | Sites: add, 4 ownership-verification methods, Ahrefs adapter, quality rules, admin review queue, starter credits | Next |
-| 2 | Credit ledger in use, link requests, manual ABC proposals, deals and legs, messaging | |
+| 1 | Sites: add, 4 ownership-verification methods, Ahrefs adapter, quality rules, admin review queue, starter credits | **Built** |
+| 2 | Credit ledger in use, link requests, manual ABC proposals, deals and legs, messaging | Next |
 | 3 | Matching engine + footprint guard (Inngest jobs) | |
 | 4 | Weekly link checker, escrow releases, penalties, disputes, reputation | |
 | 5 | Guest-post workflow + AI features | |
@@ -48,4 +48,5 @@ Agreed with the product owner on 2026-10-05.
 - Google's spam policies treat large-scale link exchanges as link schemes. Non-reciprocal
   routing and quality controls reduce but don't remove the risk; the Terms of Service must say so.
 - Displaying Ahrefs metrics to the public may need a specific Ahrefs API plan/licence. Confirm before launch.
+- The Ahrefs adapter is written against the documented v3 endpoints but has not been run against the live API yet.
 - Login rate limiting needs a shared store on serverless (e.g. Upstash Redis); planned for Phase 6.
