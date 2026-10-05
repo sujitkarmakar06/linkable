@@ -26,6 +26,10 @@ export type TermsSite = {
   canReceive: boolean;
   domainRating: number | null;
   organicTraffic: number | null;
+  ipAddress: string | null;
+  ipCClass: string | null;
+  ownerFingerprint: string | null;
+  maxOutboundPerMonth: number;
 };
 
 export function urlOnDomain(url: string, domain: string): boolean {

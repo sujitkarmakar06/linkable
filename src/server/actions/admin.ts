@@ -31,3 +31,12 @@ export async function updateSettingsAction(_: FormState, form: FormData): Promis
   revalidatePath("/admin");
   return { ok: "Rules saved." };
 }
+
+export async function runMatchingNowAction(): Promise<FormState> {
+  const admin = await requireAdmin();
+  const { runMatching } = await import("@/server/matching");
+  const r = await runMatching();
+  await db.auditLog.create({ data: { actorId: admin.id, action: "admin.matching_run", meta: r } });
+  revalidatePath("/admin");
+  return { ok: `Checked ${r.requests} open requests: ${r.created} new matches, ${r.expired} expired.` };
+}

@@ -66,6 +66,13 @@ export default async function NewRequestPage() {
                 <Input name="maxCredits" type="number" min={1} max={100} defaultValue={2} required />
               </Field>
             </div>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" name="autoMatch" defaultChecked className="mt-0.5" />
+              <span>
+                <span className="font-medium">Match automatically</span>{" "}
+                <span className="text-muted">- Linkable offers this request to the best-fitting sites. When one accepts, the price is held in escrow without another approval from you.</span>
+              </span>
+            </label>
             <Field label="Acceptable niches for the linking site" hint="Leave empty to require the same niche as your site. Hold Ctrl/Cmd to pick several.">
               <Select name="niches" multiple size={6} className="w-full">
                 {NICHES.filter((n) => !banned.has(n.toLowerCase())).map((n) => (

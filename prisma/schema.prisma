@@ -159,6 +159,7 @@ model Workspace {
   reviewsReceived  Review[]          @relation("ReviewSubject")
   disputesOpened   Dispute[]         @relation("DisputeOpener")
   disputesAgainst  Dispute[]         @relation("DisputeRespondent")
+  matches          Match[]
 }
 
 model Membership {
@@ -257,6 +258,7 @@ model Site {
 
   workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   linkRequests LinkRequest[]
+  matches      Match[]
   legsGiven    DealLeg[]     @relation("LegFromSite")
   legsReceived DealLeg[]     @relation("LegToSite")
 
@@ -297,6 +299,8 @@ model LinkRequest {
   minDomainRating Int               @default(30)
   niches          String[] // acceptable host niches; empty = same niche as site
   maxCredits      Int
+  // Let the matching engine offer this request to suitable giver sites.
+  autoMatch       Boolean           @default(true)
   status          LinkRequestStatus @default(OPEN)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -305,9 +309,45 @@ model LinkRequest {
   site      Site       @relation(fields: [siteId], references: [id], onDelete: Cascade)
   legs      DealLeg[]
   proposals Proposal[]
+  matches   Match[]
 
   @@index([status])
   @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Automatic matching: the engine offers an open request to the best few
+// giver sites; the first giver to accept gets the deal.
+// ---------------------------------------------------------------------------
+
+enum MatchStatus {
+  OFFERED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+model Match {
+  id            String      @id @default(cuid())
+  linkRequestId String
+  siteId        String // giver site
+  workspaceId   String // giver workspace
+  score         Int
+  credits       Int // price at the time of matching
+  status        MatchStatus @default(OFFERED)
+  expiresAt     DateTime
+  dealId        String?
+  footprint     Json? // warnings found when matching
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  linkRequest LinkRequest @relation(fields: [linkRequestId], references: [id], onDelete: Cascade)
+  site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([linkRequestId, siteId])
+  @@index([workspaceId, status])
+  @@index([status, expiresAt])
 }
 
 // ---------------------------------------------------------------------------

@@ -25,6 +25,8 @@ export default async function RequestPage({ params }: PageProps<"/app/requests/[
   const settings = await getSettings();
   const niches = request.niches.length ? request.niches : [request.site.niche];
 
+  const matchCounts = own ? await db.match.groupBy({ by: ["status"], where: { linkRequestId: request.id }, _count: true }) : [];
+  const liveMatches = own ? await db.match.count({ where: { linkRequestId: request.id, status: "OFFERED", expiresAt: { gt: new Date() } } }) : 0;
   const offers = own
     ? await db.proposal.findMany({ where: { linkRequestId: request.id }, include: { fromWorkspace: true }, orderBy: { createdAt: "desc" } })
     : [];
@@ -69,6 +71,23 @@ export default async function RequestPage({ params }: PageProps<"/app/requests/[
             </div>
           </dl>
         </Card>
+
+        {own && (
+          <Card title="Automatic matching">
+            {request.autoMatch ? (
+              <p className="text-sm text-muted">
+                {request.status !== "OPEN"
+                  ? "Matching has stopped for this request."
+                  : liveMatches > 0
+                    ? `Offered to ${liveMatches} matching site${liveMatches === 1 ? "" : "s"}. The first to accept gets the deal.`
+                    : "Looking for matching sites. New candidates are checked every hour."}
+                {matchCounts.length > 0 && ` (${matchCounts.map((c) => `${c._count} ${c.status.toLowerCase()}`).join(", ")})`}
+              </p>
+            ) : (
+              <p className="text-sm text-muted">Off - only manual offers.</p>
+            )}
+          </Card>
+        )}
 
         {own && (
           <Card title="Offers" description="Accepting an offer locks its price in escrow until the link is confirmed live.">

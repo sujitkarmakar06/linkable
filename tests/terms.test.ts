@@ -3,7 +3,8 @@ import { DEFAULT_CREDIT_TIERS } from "@/lib/credits";
 import { summarise, urlOnDomain, validateTerms, type LegTerm, type TermsSite } from "@/lib/terms";
 
 const site = (id: string, workspaceId: string, extra: Partial<TermsSite> = {}): TermsSite => ({
-  id, workspaceId, domain: `${id}.com`, status: "APPROVED", canGive: true, canReceive: true, domainRating: 45, organicTraffic: 5000, ...extra,
+  id, workspaceId, domain: `${id}.com`, status: "APPROVED", canGive: true, canReceive: true, domainRating: 45, organicTraffic: 5000,
+  ipAddress: null, ipCClass: null, ownerFingerprint: null, maxOutboundPerMonth: 4, ...extra,
 });
 // X owns A and C, Y owns B.
 const sites = new Map([site("a", "X"), site("c", "X"), site("b", "Y"), site("z", "Z")].map((s) => [s.id, s]));

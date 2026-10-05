@@ -7,6 +7,7 @@ import { requireMembership } from "@/server/session";
 import { ActionForm } from "@/components/action-form";
 import { DEAL_LABEL, LEG_LABEL, Pill } from "@/components/deal-status";
 import { Flash } from "@/components/flash";
+import { FootprintNotes } from "@/components/footprint-notes";
 import { Thread } from "@/components/thread";
 import { Card, Field, Input, PageHeader } from "@/components/ui";
 
@@ -34,6 +35,7 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
       </PageHeader>
       <div className="flex max-w-3xl flex-col gap-4">
         <Flash done={done} />
+        <FootprintNotes title="Footprint warnings" result={{ blocks: [], warnings: (deal.footprint as { warnings?: string[] } | null)?.warnings ?? [] }} />
         {deal.legs.map((leg, i) => {
           const giving = leg.giverWorkspaceId === workspace.id;
           const receiving = leg.receiverWorkspaceId === workspace.id;

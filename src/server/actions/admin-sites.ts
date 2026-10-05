@@ -2,10 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { assessSite, grantStarterCreditsOnce, notifySiteDecision } from "@/server/sites";
+import { runMatching } from "@/server/matching";
 import { requireAdmin } from "@/server/session";
 import type { FormState } from "./types";
 
@@ -32,6 +34,8 @@ export async function approveSiteAction(_: FormState, form: FormData): Promise<F
     granted = await grantStarterCreditsOnce(tx, site.workspaceId, settings.starterCredits, admin.id);
     await tx.auditLog.create({ data: { actorId: admin.id, workspaceId: site.workspaceId, action: "admin.site_approved", target: site.id, meta: { granted } } });
   });
+  // A newly approved giver site may fit requests that are waiting.
+  if (site.canGive) after(() => runMatching().catch((err) => console.error("[matching]", err)));
   await notifySiteDecision(site.workspaceId, site.domain, site.id, "approved", granted ? `${settings.starterCredits} starter credits were added to your workspace.` : null);
   return done(form, `${site.domain} approved${granted ? ` and ${settings.starterCredits} starter credits granted` : ""}.`);
 }

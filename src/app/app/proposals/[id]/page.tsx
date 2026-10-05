@@ -7,11 +7,13 @@ import { hasRole } from "@/lib/roles";
 import { getSettings, priceRules } from "@/lib/settings";
 import { summarise, type Terms } from "@/lib/terms";
 import { acceptAction, closeProposalAction, counterAction } from "@/server/actions/proposals";
+import { checkTerms as checkFootprint } from "@/server/footprint";
 import { requireMembership } from "@/server/session";
 import { ActionForm } from "@/components/action-form";
 import { LegsEditor } from "@/components/legs-editor";
 import { LegsTable } from "@/components/legs-table";
 import { Flash } from "@/components/flash";
+import { FootprintNotes } from "@/components/footprint-notes";
 import { Thread } from "@/components/thread";
 import { Button, Card, PageHeader } from "@/components/ui";
 
@@ -39,6 +41,7 @@ export default async function ProposalPage({ params, searchParams }: PageProps<"
   const summary = summarise(terms, sites, priceRules(settings));
   const mine = summary.get(workspace.id) ?? { receives: 0, gives: 0, pays: 0 };
   const theirs = summary.get(other.id) ?? { receives: 0, gives: 0, pays: 0 };
+  const footprint = proposal.status === "OPEN" ? await checkFootprint(terms, sites) : { blocks: [], warnings: [] };
   const myTurn = proposal.status === "OPEN" && proposal.awaitingWorkspaceId === workspace.id;
   const canAct = hasRole(membership.role, "MEMBER");
 
@@ -75,6 +78,8 @@ export default async function ProposalPage({ params, searchParams }: PageProps<"
             </div>
           </dl>
         </Card>
+
+        <FootprintNotes result={footprint} />
 
         {proposal.status === "OPEN" && canAct && (
           <Card title={myTurn ? "Your move" : `Waiting for ${other.name}`}>

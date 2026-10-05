@@ -9,6 +9,7 @@ import { priceLink } from "@/lib/credits";
 import { getSettings } from "@/lib/settings";
 import { legSchema, validateTerms, type LegTerm, type Terms } from "@/lib/terms";
 import { acceptProposal, DealError, loadTermsSites } from "@/server/deals";
+import { checkTerms as checkFootprint } from "@/server/footprint";
 import { notifyWorkspace } from "@/server/notify";
 import { requireMembership } from "@/server/session";
 import type { FormState } from "./types";
@@ -34,9 +35,13 @@ function parseLegs(form: FormData): { legs?: LegTerm[]; error?: string } {
   return { legs };
 }
 
+// Structural rules first, then the footprint guard (blocks only; warnings
+// are shown on the proposal page).
 async function checkTerms(kind: Proposal["kind"], terms: Terms, parties: [string, string]) {
   const sites = await loadTermsSites(terms);
-  return validateTerms(kind, terms, sites, parties);
+  const errors = validateTerms(kind, terms, sites, parties);
+  if (errors.length) return errors;
+  return (await checkFootprint(terms, sites)).blocks;
 }
 
 const proposalPath = (id: string) => `/app/proposals/${id}`;
@@ -116,7 +121,7 @@ export async function counterAction(_: FormState, form: FormData): Promise<FormS
   if (legs.length !== before.length || legs.some((l, i) => sites.get(l.fromSiteId)?.workspaceId !== sites.get(before[i].fromSiteId)?.workspaceId))
     return { error: "A counter-offer keeps the same links in the same direction." };
   const terms = { legs };
-  const errors = validateTerms("SWAP", terms, sites, [proposal.fromWorkspaceId, proposal.toWorkspaceId]);
+  const errors = await checkTerms("SWAP", terms, [proposal.fromWorkspaceId, proposal.toWorkspaceId]);
   if (errors.length) return { error: errors[0] };
 
   const { count } = await db.proposal.updateMany({
@@ -142,8 +147,6 @@ export async function acceptAction(_: FormState, form: FormData): Promise<FormSt
     if (err instanceof DealError) return { error: err.message };
     throw err;
   }
-  // Other offers on the same request are closed.
-  if (proposal.linkRequestId) await db.proposal.updateMany({ where: { linkRequestId: proposal.linkRequestId, status: "OPEN" }, data: { status: "DECLINED" } });
   await notifyWorkspace(other, { kind: "proposal.accepted", title: `${workspace.name} accepted - the deal is on`, body: `Place your link within 14 days and add the page URL on the deal page.`, path: `/app/deals/${dealId}` }, { everyone: true });
   redirect(`/app/deals/${dealId}`);
 }

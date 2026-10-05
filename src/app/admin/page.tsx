@@ -1,18 +1,20 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
-import { updateSettingsAction } from "@/server/actions/admin";
+import { runMatchingNowAction, updateSettingsAction } from "@/server/actions/admin";
 import { ActionForm } from "@/components/action-form";
 import { Card, Field, Input, PageHeader } from "@/components/ui";
 
 export const metadata: Metadata = { title: "Admin" };
 
 export default async function AdminPage() {
-  const [settings, users, workspaces, sitesPending] = await Promise.all([
+  const [settings, users, workspaces, sitesPending, openRequests, liveMatches] = await Promise.all([
     getSettings(),
     db.user.count(),
     db.workspace.count(),
     db.site.count({ where: { status: "PENDING_REVIEW" } }),
+    db.linkRequest.count({ where: { status: "OPEN" } }),
+    db.match.count({ where: { status: "OFFERED", expiresAt: { gt: new Date() } } }),
   ]);
 
   const num = (name: keyof typeof settings, label: string, hint?: string) => (
@@ -36,6 +38,9 @@ export default async function AdminPage() {
           </div>
         ))}
       </div>
+      <Card title="Matching" description={`${openRequests} open requests · ${liveMatches} live match offers. Runs hourly via cron and whenever a request is posted or a giving site is approved.`} className="mb-6 max-w-3xl">
+        <ActionForm action={runMatchingNowAction} submit="Run matching now" variant="secondary" />
+      </Card>
       <Card title="Marketplace rules" description="Changes apply immediately, no deploy needed." className="max-w-3xl">
         <ActionForm action={updateSettingsAction} submit="Save rules">
           <div className="grid gap-4 sm:grid-cols-2">

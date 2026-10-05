@@ -21,7 +21,7 @@ Agreed with the product owner on 2026-10-05.
 | Notifications | Email (Resend) |
 | Admin | Site/user moderation, disputes, platform analytics, editable rules |
 | Admin account | sujitk@solguruz.com |
-| Hosting | Vercel + Neon Postgres; Inngest for background jobs |
+| Hosting | Vercel + Neon Postgres; background jobs as Vercel Cron -> route handlers (no extra vendor; can move to Inngest if jobs outgrow cron) |
 | Language | English only |
 | Domain | None yet |
 
@@ -39,8 +39,8 @@ Agreed with the product owner on 2026-10-05.
 | 0 | Repo, CI, auth (email, Google, 2FA), workspaces and roles, admin rules, full schema | **Built** |
 | 1 | Sites: add, 4 ownership-verification methods, Ahrefs adapter, quality rules, admin review queue, starter credits | **Built** |
 | 2 | Credit ledger in use, link requests, manual ABC proposals, deals and legs, messaging | **Built** |
-| 3 | Matching engine + footprint guard (Inngest jobs) | Next |
-| 4 | Weekly link checker, escrow releases, penalties, disputes, reputation | |
+| 3 | Matching engine + footprint guard (cron-triggered jobs) | **Built** |
+| 4 | Weekly link checker, escrow releases, penalties, disputes, reputation | Next |
 | 5 | Guest-post workflow + AI features | |
 | 6 | Email notification set, admin analytics, reports/CSV export, security hardening, launch | |
 

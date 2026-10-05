@@ -8,7 +8,19 @@ Every placed link is checked weekly and guaranteed for 12 months.
 
 See [`docs/PLAN.md`](docs/PLAN.md) for the full product plan and roadmap.
 
-## Status: Phase 2 (deals) built
+## Status: Phase 3 (matching + footprint guard) built
+
+Phase 3:
+- Automatic matching: each open request (with "Match automatically" on) is offered to the 3 best
+  giver sites - one per workspace - ranked by niche fit, DR, traffic, reputation and spare monthly
+  capacity. Offers last 72 hours; the first giver to accept gets the deal and the price moves to escrow.
+  Declines and expiries hand the request to the next best site.
+- Runs when a request is posted, when a giving site is approved, hourly via cron, and on demand from Admin.
+- Footprint guard on every offer, swap, counter, accept and match:
+  - blocks: same owner, same IP or IP range (shared CDN ranges ignored), a reverse link between the
+    same two sites within the cooldown, a duplicate link, the giver's monthly outbound cap
+  - warns: repeat deals between the same two workspaces, one anchor over 30% of a target's links
+- Matches page for givers, matching status on requests, footprint notes on proposals and deals
 
 Phase 2:
 - Marketplace: browse approved sites from other workspaces (niche, DR, domain filters) and open link requests
@@ -44,11 +56,11 @@ Phase 0:
   double-entry credit ledger, escrow releases, link checks, disputes, reviews, audit log)
 - Credit pricing and escrow-release logic, with unit tests
 
-Next: Phase 3, automatic matching engine and footprint guard.
+Next: Phase 4, weekly link checker, escrow releases, penalties, disputes and reputation.
 
 ## Stack
 Next.js 16 (App Router, server actions) · TypeScript · Tailwind CSS 4 · Prisma 6 + PostgreSQL ·
-Auth.js v5 · Resend · Vitest. Hosting: Vercel + Neon. Background jobs (link checks, matching) will use Inngest from Phase 3.
+Auth.js v5 · Resend · Vitest. Hosting: Vercel + Neon. Background jobs run as cron-triggered route handlers (`/api/cron/*`, scheduled in `vercel.json`).
 
 ## Run locally
 ```bash
@@ -79,7 +91,10 @@ CI (`.github/workflows/ci.yml`) runs the same steps against a Postgres service.
    `https://<your-domain>/api/gsc/callback` (Search Console verification), and enable the
    "Google Search Console API" for the project.
 6. Resend: verify your sending domain and set `EMAIL_FROM` to an address on it.
-7. Ahrefs: set `AHREFS_API_KEY`. Without it, admins enter DR and traffic by hand during review.
+7. Cron: set `CRON_SECRET` (any long random string). Vercel sends it to `/api/cron/matching`.
+   The hourly schedule in `vercel.json` needs a Vercel Pro plan; Hobby allows daily crons only
+   (matching still runs instantly on new requests and approvals, and Admin has "Run matching now").
+8. Ahrefs: set `AHREFS_API_KEY`. Without it, admins enter DR and traffic by hand during review.
    The adapter targets the v3 Site Explorer `domain-rating` and `metrics` endpoints; do one
    test lookup after adding the key to confirm the response shape.
 
