@@ -1,0 +1,639 @@
+// Linkable - ABC (three-way) link exchange marketplace.
+//
+// The whole data model is defined up front so it can be reviewed as one
+// piece. Phase 0 uses the identity/workspace/settings models; later phases
+// fill in sites, deals, credits and link checks.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity (Auth.js tables + our own fields)
+// ---------------------------------------------------------------------------
+
+enum PlatformRole {
+  USER
+  ADMIN
+}
+
+model User {
+  id               String       @id @default(cuid())
+  name             String?
+  email            String       @unique
+  emailVerified    DateTime?
+  image            String?
+  passwordHash     String?
+  platformRole     PlatformRole @default(USER)
+  suspendedAt      DateTime?
+  suspendedReason  String?
+  // TOTP 2FA. The secret is stored encrypted (AES-256-GCM, see lib/crypto).
+  twoFactorSecret  String?
+  twoFactorEnabled Boolean      @default(false)
+  lastWorkspaceId  String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  memberships   Membership[]
+  invitesSent   Invite[]       @relation("InviteSender")
+  messages      Message[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  authTokens    AuthToken[]
+  recoveryCodes RecoveryCode[]
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+enum AuthTokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+// Our own single-use tokens (email verification, password reset). Only the
+// SHA-256 hash of the token is stored.
+model AuthToken {
+  id        String        @id @default(cuid())
+  userId    String
+  type      AuthTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+}
+
+model RecoveryCode {
+  id       String    @id @default(cuid())
+  userId   String
+  codeHash String
+  usedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Workspaces (agencies / teams)
+// ---------------------------------------------------------------------------
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum WorkspacePlan {
+  FREE
+}
+
+model Workspace {
+  id          String        @id @default(cuid())
+  name        String
+  slug        String        @unique
+  plan        WorkspacePlan @default(FREE)
+  // Reputation 0-100, starts neutral. Moves with reviews, delays, removals.
+  reputation  Int           @default(50)
+  suspendedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  memberships      Membership[]
+  invites          Invite[]
+  sites            Site[]
+  linkRequests     LinkRequest[]
+  creditEntries    CreditEntry[]
+  proposalsSent    Proposal[]        @relation("ProposalFrom")
+  proposalsGot     Proposal[]        @relation("ProposalTo")
+  dealParticipants DealParticipant[]
+  reviewsGiven     Review[]          @relation("ReviewAuthor")
+  reviewsReceived  Review[]          @relation("ReviewSubject")
+  disputesOpened   Dispute[]         @relation("DisputeOpener")
+  disputesAgainst  Dispute[]         @relation("DisputeRespondent")
+}
+
+model Membership {
+  id          String        @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        WorkspaceRole @default(MEMBER)
+  createdAt   DateTime      @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+model Invite {
+  id          String        @id @default(cuid())
+  workspaceId String
+  email       String
+  role        WorkspaceRole @default(MEMBER)
+  tokenHash   String        @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User      @relation("InviteSender", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([email])
+}
+
+// ---------------------------------------------------------------------------
+// Sites
+// ---------------------------------------------------------------------------
+
+enum VerificationMethod {
+  DNS_TXT
+  META_TAG
+  HTML_FILE
+  GSC
+}
+
+enum SiteStatus {
+  DRAFT // added, ownership not proven yet
+  PENDING_REVIEW // ownership proven, waiting for admin approval
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+model Site {
+  id                  String  @id @default(cuid())
+  workspaceId         String
+  domain              String // normalised: lowercase, no scheme, no www
+  // A site can receive links (money site, "A"), give links ("C"), or both.
+  canReceive          Boolean @default(true)
+  canGive             Boolean @default(true)
+  niche               String
+  language            String  @default("en")
+  country             String?
+  maxOutboundPerMonth Int     @default(4)
+
+  verificationToken  String              @unique
+  verificationMethod VerificationMethod?
+  verifiedAt         DateTime?
+  status             SiteStatus          @default(DRAFT)
+  reviewNote         String?
+  reviewedAt         DateTime?
+
+  // Metrics come from the SEO provider (Ahrefs first) and are cached.
+  domainRating     Int?
+  organicTraffic   Int?
+  metricsProvider  String?
+  metricsUpdatedAt DateTime?
+
+  // Footprint data, used to stop deals between related sites.
+  ipAddress        String?
+  ipCClass         String? // first three octets, e.g. 203.0.113
+  asn              String?
+  ownerFingerprint String? // hash of WHOIS registrant / GSC owner when known
+
+  spamScore   Int? // 0-100, higher = more likely PBN/spam
+  spamSignals Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  linkRequests LinkRequest[]
+  legsGiven    DealLeg[]     @relation("LegFromSite")
+  legsReceived DealLeg[]     @relation("LegToSite")
+
+  @@unique([domain])
+  @@index([workspaceId])
+  @@index([status, niche])
+}
+
+// ---------------------------------------------------------------------------
+// Demand: "I want a link to this page"
+// ---------------------------------------------------------------------------
+
+enum LinkRequestStatus {
+  OPEN
+  MATCHED
+  FULFILLED
+  CANCELLED
+}
+
+enum PlacementType {
+  INSERTION
+  GUEST_POST
+}
+
+enum LinkRel {
+  DOFOLLOW
+  NOFOLLOW
+}
+
+model LinkRequest {
+  id              String            @id @default(cuid())
+  workspaceId     String
+  siteId          String // the A site receiving the link
+  targetUrl       String
+  anchors         String[]
+  placementType   PlacementType     @default(INSERTION)
+  rel             LinkRel           @default(DOFOLLOW)
+  minDomainRating Int               @default(30)
+  niches          String[] // acceptable host niches; empty = same niche as site
+  maxCredits      Int
+  status          LinkRequestStatus @default(OPEN)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  site      Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  legs      DealLeg[]
+
+  @@index([status])
+  @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Deals
+// ---------------------------------------------------------------------------
+
+enum DealSource {
+  AUTO_MATCH // credit-based, created by the matching engine
+  PROPOSAL // manual ABC proposal between two workspaces
+}
+
+enum DealStatus {
+  PROPOSED
+  AGREED
+  IN_PROGRESS
+  LIVE // every leg verified live
+  COMPLETED // 12-month guarantee served, escrow fully released
+  CANCELLED
+  DISPUTED
+}
+
+enum LegStatus {
+  PENDING
+  CONTENT_SUBMITTED
+  CONTENT_APPROVED
+  PLACED // giver says it's live
+  VERIFIED // our crawler confirmed it
+  FAILING // failed checks, inside grace period
+  REMOVED // grace period ran out
+  CANCELLED
+}
+
+model Proposal {
+  id              String   @id @default(cuid())
+  fromWorkspaceId String
+  toWorkspaceId   String
+  // The proposed legs, as JSON until accepted; acceptance creates the Deal.
+  terms           Json
+  status          String   @default("open") // open / countered / accepted / declined / withdrawn
+  dealId          String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  fromWorkspace Workspace @relation("ProposalFrom", fields: [fromWorkspaceId], references: [id], onDelete: Cascade)
+  toWorkspace   Workspace @relation("ProposalTo", fields: [toWorkspaceId], references: [id], onDelete: Cascade)
+  deal          Deal?     @relation(fields: [dealId], references: [id])
+  messages      Message[]
+}
+
+model Deal {
+  id            String     @id @default(cuid())
+  source        DealSource
+  status        DealStatus @default(PROPOSED)
+  // Footprint checks run when the deal is created; warnings are kept here.
+  footprint     Json?
+  guaranteeEnds DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  participants  DealParticipant[]
+  legs          DealLeg[]
+  proposal      Proposal?
+  messages      Message[]
+  disputes      Dispute[]
+  creditEntries CreditEntry[]
+  reviews       Review[]
+
+  @@index([status])
+}
+
+model DealParticipant {
+  dealId      String
+  workspaceId String
+  acceptedAt  DateTime?
+
+  deal      Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([dealId, workspaceId])
+}
+
+model DealLeg {
+  id            String        @id @default(cuid())
+  dealId        String
+  fromSiteId    String // site hosting the link
+  toSiteId      String // site being linked to
+  linkRequestId String?
+  targetUrl     String
+  anchor        String
+  rel           LinkRel       @default(DOFOLLOW)
+  placementType PlacementType @default(INSERTION)
+  sourcePageUrl String? // filled when placed
+  credits       Int           @default(0)
+  status        LegStatus     @default(PENDING)
+  dueAt         DateTime?
+  placedAt      DateTime?
+  verifiedAt    DateTime?
+  failingSince  DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  deal        Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  fromSite    Site         @relation("LegFromSite", fields: [fromSiteId], references: [id])
+  toSite      Site         @relation("LegToSite", fields: [toSiteId], references: [id])
+  linkRequest LinkRequest? @relation(fields: [linkRequestId], references: [id])
+  checks      LinkCheck[]
+  guestPost   GuestPost?
+
+  @@index([dealId])
+  @@index([status])
+  @@index([fromSiteId])
+  @@index([toSiteId])
+}
+
+model GuestPost {
+  id        String   @id @default(cuid())
+  legId     String   @unique
+  title     String
+  body      String
+  aiDrafted Boolean  @default(false)
+  status    String   @default("submitted") // submitted / changes_requested / approved / published
+  hostNote  String?
+  revision  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leg DealLeg @relation(fields: [legId], references: [id], onDelete: Cascade)
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  authorId   String
+  dealId     String?
+  proposalId String?
+  body       String
+  createdAt  DateTime @default(now())
+
+  author   User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  deal     Deal?     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  proposal Proposal? @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+  @@index([proposalId])
+}
+
+// ---------------------------------------------------------------------------
+// Link verification
+// ---------------------------------------------------------------------------
+
+model LinkCheck {
+  id           String   @id @default(cuid())
+  legId        String
+  checkedAt    DateTime @default(now())
+  httpStatus   Int?
+  finalUrl     String?
+  redirects    Int      @default(0)
+  linkFound    Boolean
+  anchorMatch  Boolean?
+  rel          String? // raw rel attribute found
+  noindex      Boolean?
+  canonicalUrl String?
+  error        String?
+
+  leg DealLeg @relation(fields: [legId], references: [id], onDelete: Cascade)
+
+  @@index([legId, checkedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Credits: an append-only, double-entry ledger.
+// Every movement writes two rows with opposite amounts and the same txId,
+// so the sum over a txId is always zero. A workspace's balance is the sum of
+// its AVAILABLE rows; ESCROW rows hold credits locked in a running deal.
+// ---------------------------------------------------------------------------
+
+enum CreditBucket {
+  AVAILABLE
+  ESCROW
+  PLATFORM // the platform's own account (grants, penalties)
+}
+
+enum CreditReason {
+  SIGNUP_GRANT
+  ESCROW_LOCK
+  ESCROW_RELEASE
+  ESCROW_REFUND
+  PENALTY
+  ADMIN_ADJUSTMENT
+}
+
+model CreditEntry {
+  id          String       @id @default(cuid())
+  txId        String
+  workspaceId String? // null for PLATFORM rows
+  bucket      CreditBucket
+  amount      Int // positive = in, negative = out
+  reason      CreditReason
+  dealId      String?
+  note        String?
+  createdById String?
+  createdAt   DateTime     @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deal      Deal?      @relation(fields: [dealId], references: [id])
+
+  @@index([workspaceId, bucket])
+  @@index([txId])
+  @@index([dealId])
+}
+
+// Scheduled staged releases of escrowed credits (40% live, 20% at 3/6/12 months).
+model EscrowRelease {
+  id          String    @id @default(cuid())
+  dealId      String
+  legId       String
+  amount      Int
+  releaseAt   DateTime
+  releasedAt  DateTime?
+  cancelledAt DateTime?
+
+  @@index([releaseAt, releasedAt])
+  @@index([legId])
+}
+
+// ---------------------------------------------------------------------------
+// Trust & safety
+// ---------------------------------------------------------------------------
+
+model Review {
+  id                 String   @id @default(cuid())
+  dealId             String
+  authorWorkspaceId  String
+  subjectWorkspaceId String
+  rating             Int // 1-5
+  comment            String?
+  createdAt          DateTime @default(now())
+
+  deal    Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  author  Workspace @relation("ReviewAuthor", fields: [authorWorkspaceId], references: [id], onDelete: Cascade)
+  subject Workspace @relation("ReviewSubject", fields: [subjectWorkspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, authorWorkspaceId])
+}
+
+enum DisputeStatus {
+  OPEN
+  RESOLVED
+  REJECTED
+}
+
+model Dispute {
+  id                  String        @id @default(cuid())
+  dealId              String
+  legId               String?
+  openedByWorkspaceId String
+  againstWorkspaceId  String
+  reason              String
+  status              DisputeStatus @default(OPEN)
+  resolution          String?
+  resolvedById        String?
+  resolvedAt          DateTime?
+  createdAt           DateTime      @default(now())
+
+  deal     Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  openedBy Workspace @relation("DisputeOpener", fields: [openedByWorkspaceId], references: [id], onDelete: Cascade)
+  against  Workspace @relation("DisputeRespondent", fields: [againstWorkspaceId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Platform
+// ---------------------------------------------------------------------------
+
+// Single row (id = "global"). Admins edit rules here without a deploy.
+model PlatformSettings {
+  id                    String   @id @default("global")
+  minDomainRating       Int      @default(30)
+  minMonthlyTraffic     Int      @default(500)
+  bannedNiches          String[]
+  starterCredits        Int      @default(2)
+  freeMaxSites          Int      @default(1)
+  freeMaxOpenRequests   Int      @default(3)
+  // [{ minDr, maxDr, credits }]
+  creditTiers           Json
+  nofollowMultiplier    Float    @default(0.25)
+  guestPostBonus        Int      @default(1)
+  guaranteeMonths       Int      @default(12)
+  checkIntervalDays     Int      @default(7)
+  failuresBeforeAlert   Int      @default(2)
+  graceDays             Int      @default(7)
+  removalPenaltyCredits Int      @default(2)
+  pairCooldownMonths    Int      @default(6)
+  updatedAt             DateTime @updatedAt
+  updatedById           String?
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  kind      String
+  title     String
+  body      String
+  url       String?
+  emailedAt DateTime?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String?
+  workspaceId String?
+  action      String
+  target      String?
+  meta        Json?
+  createdAt   DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([action])
+}
+
+// Cache of SEO provider lookups so each domain is billed at most once per TTL.
+model MetricsCache {
+  domain    String
+  provider  String
+  data      Json
+  fetchedAt DateTime @default(now())
+
+  @@id([domain, provider])
+}
