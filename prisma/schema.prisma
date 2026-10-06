@@ -18,6 +18,12 @@ datasource db {
 // Identity (Auth.js tables + our own fields)
 // ---------------------------------------------------------------------------
 
+enum EmailMode {
+  INSTANT
+  DIGEST // bundled into one daily email
+  OFF
+}
+
 enum PlatformRole {
   USER
   ADMIN
@@ -36,7 +42,17 @@ model User {
   // TOTP 2FA. The secret is stored encrypted (AES-256-GCM, see lib/crypto).
   twoFactorSecret  String?
   twoFactorEnabled Boolean      @default(false)
+  // Last accepted TOTP time step, so a code can\'t be replayed.
+  lastTotpStep     Int?
   lastWorkspaceId  String?
+  // Bumped on password change/reset and 2FA changes: older sessions stop working.
+  sessionVersion   Int          @default(0)
+  termsAcceptedAt  DateTime?
+  // Email preferences. Security and urgent link/dispute emails are always instant.
+  emailDeals       EmailMode    @default(INSTANT)
+  emailMessages    EmailMode    @default(INSTANT)
+  emailSites       EmailMode    @default(INSTANT)
+  monthlyReport    Boolean      @default(true)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
@@ -159,6 +175,7 @@ model Workspace {
   reviewsReceived  Review[]          @relation("ReviewSubject")
   disputesOpened   Dispute[]         @relation("DisputeOpener")
   disputesAgainst  Dispute[]         @relation("DisputeRespondent")
+  matches          Match[]
 }
 
 model Membership {
@@ -227,9 +244,16 @@ model Site {
   verificationToken  String              @unique
   verificationMethod VerificationMethod?
   verifiedAt         DateTime?
+  // Set to `domain` once ownership is proven. Unique, so only one workspace
+  // can hold a verified claim on a domain while unverified claims can coexist
+  // (stops someone squatting a domain they don't own).
+  verifiedDomain     String?             @unique
+  lastVerifyAt       DateTime?
+  lastVerifyError    String?
   status             SiteStatus          @default(DRAFT)
   reviewNote         String?
   reviewedAt         DateTime?
+  reviewedById       String?
 
   // Metrics come from the SEO provider (Ahrefs first) and are cached.
   domainRating     Int?
@@ -250,11 +274,12 @@ model Site {
 
   workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   linkRequests LinkRequest[]
+  matches      Match[]
   legsGiven    DealLeg[]     @relation("LegFromSite")
   legsReceived DealLeg[]     @relation("LegToSite")
 
-  @@unique([domain])
-  @@index([workspaceId])
+  @@unique([workspaceId, domain])
+  @@index([domain])
   @@index([status, niche])
 }
 
@@ -290,16 +315,55 @@ model LinkRequest {
   minDomainRating Int               @default(30)
   niches          String[] // acceptable host niches; empty = same niche as site
   maxCredits      Int
+  // Let the matching engine offer this request to suitable giver sites.
+  autoMatch       Boolean           @default(true)
   status          LinkRequestStatus @default(OPEN)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  site      Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  site      Site       @relation(fields: [siteId], references: [id], onDelete: Cascade)
   legs      DealLeg[]
+  proposals Proposal[]
+  matches   Match[]
 
   @@index([status])
   @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Automatic matching: the engine offers an open request to the best few
+// giver sites; the first giver to accept gets the deal.
+// ---------------------------------------------------------------------------
+
+enum MatchStatus {
+  OFFERED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+model Match {
+  id            String      @id @default(cuid())
+  linkRequestId String
+  siteId        String // giver site
+  workspaceId   String // giver workspace
+  score         Int
+  credits       Int // price at the time of matching
+  status        MatchStatus @default(OFFERED)
+  expiresAt     DateTime
+  dealId        String?
+  footprint     Json? // warnings found when matching
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  linkRequest LinkRequest @relation(fields: [linkRequestId], references: [id], onDelete: Cascade)
+  site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([linkRequestId, siteId])
+  @@index([workspaceId, status])
+  @@index([status, expiresAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +372,20 @@ model LinkRequest {
 
 enum DealSource {
   AUTO_MATCH // credit-based, created by the matching engine
-  PROPOSAL // manual ABC proposal between two workspaces
+  PROPOSAL // manual ABC swap proposal between two workspaces
+  REQUEST_OFFER // a giver offered to fulfil someone's link request for credits
+}
+
+enum ProposalKind {
+  SWAP // both sides give links (ABC structure enforced)
+  REQUEST_OFFER // one link for credits, answering a LinkRequest
+}
+
+enum ProposalStatus {
+  OPEN
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
 }
 
 enum DealStatus {
@@ -333,20 +410,30 @@ enum LegStatus {
 }
 
 model Proposal {
-  id              String   @id @default(cuid())
-  fromWorkspaceId String
-  toWorkspaceId   String
-  // The proposed legs, as JSON until accepted; acceptance creates the Deal.
-  terms           Json
-  status          String   @default("open") // open / countered / accepted / declined / withdrawn
-  dealId          String?  @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                  String         @id @default(cuid())
+  kind                ProposalKind   @default(SWAP)
+  fromWorkspaceId     String
+  toWorkspaceId       String
+  // Whose move it is. Countering flips it to the other side.
+  awaitingWorkspaceId String
+  linkRequestId       String?
+  // The proposed legs (see lib/terms.ts), as JSON until accepted; acceptance creates the Deal.
+  terms               Json
+  revision            Int            @default(1)
+  status              ProposalStatus @default(OPEN)
+  dealId              String?        @unique
+  createdById         String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
-  fromWorkspace Workspace @relation("ProposalFrom", fields: [fromWorkspaceId], references: [id], onDelete: Cascade)
-  toWorkspace   Workspace @relation("ProposalTo", fields: [toWorkspaceId], references: [id], onDelete: Cascade)
-  deal          Deal?     @relation(fields: [dealId], references: [id])
+  fromWorkspace Workspace    @relation("ProposalFrom", fields: [fromWorkspaceId], references: [id], onDelete: Cascade)
+  toWorkspace   Workspace    @relation("ProposalTo", fields: [toWorkspaceId], references: [id], onDelete: Cascade)
+  linkRequest   LinkRequest? @relation(fields: [linkRequestId], references: [id], onDelete: SetNull)
+  deal          Deal?        @relation(fields: [dealId], references: [id])
   messages      Message[]
+
+  @@index([fromWorkspaceId, status])
+  @@index([toWorkspaceId, status])
 }
 
 model Deal {
@@ -382,24 +469,32 @@ model DealParticipant {
 }
 
 model DealLeg {
-  id            String        @id @default(cuid())
-  dealId        String
-  fromSiteId    String // site hosting the link
-  toSiteId      String // site being linked to
-  linkRequestId String?
-  targetUrl     String
-  anchor        String
-  rel           LinkRel       @default(DOFOLLOW)
-  placementType PlacementType @default(INSERTION)
-  sourcePageUrl String? // filled when placed
-  credits       Int           @default(0)
-  status        LegStatus     @default(PENDING)
-  dueAt         DateTime?
-  placedAt      DateTime?
-  verifiedAt    DateTime?
-  failingSince  DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                  String        @id @default(cuid())
+  dealId              String
+  fromSiteId          String // site hosting the link
+  toSiteId            String // site being linked to
+  linkRequestId       String?
+  // Denormalised so a leg's parties survive site edits; the receiver pays
+  // `credits` to the giver (through escrow).
+  giverWorkspaceId    String
+  receiverWorkspaceId String
+  targetUrl           String
+  anchor              String
+  rel                 LinkRel       @default(DOFOLLOW)
+  placementType       PlacementType @default(INSERTION)
+  sourcePageUrl       String? // filled when placed
+  credits             Int           @default(0)
+  status              LegStatus     @default(PENDING)
+  dueAt               DateTime?
+  placedAt            DateTime?
+  verifiedAt          DateTime?
+  failingSince        DateTime?
+  consecutiveFailures Int           @default(0)
+  lastCheckedAt       DateTime?
+  overdueNotifiedAt   DateTime?
+  removedAt           DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
   deal        Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
   fromSite    Site         @relation("LegFromSite", fields: [fromSiteId], references: [id])
@@ -498,6 +593,8 @@ model CreditEntry {
   amount      Int // positive = in, negative = out
   reason      CreditReason
   dealId      String?
+  // Set on escrow releases/refunds/penalties so per-link refunds are idempotent.
+  legId       String?
   note        String?
   createdById String?
   createdAt   DateTime     @default(now())
@@ -508,6 +605,7 @@ model CreditEntry {
   @@index([workspaceId, bucket])
   @@index([txId])
   @@index([dealId])
+  @@index([legId, reason])
 }
 
 // Scheduled staged releases of escrowed credits (40% live, 20% at 3/6/12 months).
@@ -557,6 +655,8 @@ model Dispute {
   openedByWorkspaceId String
   againstWorkspaceId  String
   reason              String
+  // Deal status before the dispute, restored when it is resolved.
+  previousDealStatus  DealStatus?
   status              DisputeStatus @default(OPEN)
   resolution          String?
   resolvedById        String?
@@ -581,7 +681,7 @@ model PlatformSettings {
   minMonthlyTraffic     Int      @default(500)
   bannedNiches          String[]
   starterCredits        Int      @default(2)
-  freeMaxSites          Int      @default(1)
+  freeMaxSites          Int      @default(2)
   freeMaxOpenRequests   Int      @default(3)
   // [{ minDr, maxDr, credits }]
   creditTiers           Json
@@ -593,20 +693,25 @@ model PlatformSettings {
   graceDays             Int      @default(7)
   removalPenaltyCredits Int      @default(2)
   pairCooldownMonths    Int      @default(6)
+  guestPostMinWords     Int      @default(800)
+  guestPostMaxRevisions Int      @default(3)
+  aiSuggestionsPerMonth Int      @default(20)
+  aiDraftsPerMonth      Int      @default(3)
   updatedAt             DateTime @updatedAt
   updatedById           String?
 }
 
 model Notification {
-  id        String    @id @default(cuid())
-  userId    String
-  kind      String
-  title     String
-  body      String
-  url       String?
-  emailedAt DateTime?
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
+  id         String    @id @default(cuid())
+  userId     String
+  kind       String
+  title      String
+  body       String
+  url        String?
+  emailedAt  DateTime?
+  emailState String    @default("sent") // sent / digest (waiting) / digested / off
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -626,6 +731,44 @@ model AuditLog {
 
   @@index([workspaceId, createdAt])
   @@index([action])
+}
+
+// Login / signup / reset attempts for rate limiting (Postgres, no extra vendor).
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  key       String // e.g. "login:email:a@b.com", "login:ip:1.2.3.4"
+  success   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
+}
+
+// Idempotency for periodic jobs (monthly reports, daily digests).
+model JobRun {
+  id        String   @id @default(cuid())
+  kind      String
+  period    String // e.g. "2026-10" or "2026-10-06"
+  createdAt DateTime @default(now())
+
+  @@unique([kind, period])
+}
+
+// One row per Claude API call, for monthly limits and cost tracking.
+model AiUsage {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  userId       String?
+  kind         String // anchors / placement / draft
+  model        String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  legId        String?
+  // For drafts: hash of the generated body, so an unedited draft can't be submitted.
+  outputHash   String?
+  createdAt    DateTime @default(now())
+
+  @@index([workspaceId, kind, createdAt])
+  @@index([legId])
 }
 
 // Cache of SEO provider lookups so each domain is billed at most once per TTL.

@@ -15,13 +15,23 @@ Agreed with the product owner on 2026-10-05.
 | Quality | Min DR 30, min 500 monthly organic visits, banned niches (casino, gambling, adult, pharma, CBD, crypto, loans), spam/PBN scoring, reputation and penalties |
 | Content | Link insertions, guest posts, AI help (anchors, placement pages, drafts via Claude API) |
 | Credit pricing | DR tiers: 30-39 = 1, 40-59 = 2, 60-79 = 4, 80+ = 8; traffic x0.75 (<1k) / x1.25 (50k+); nofollow x0.25; guest post +1 |
-| Guarantee | 12 months, weekly checks; escrow released 40% on verification, then 20% at 3, 6 and 12 months |
+| Guarantee | 12 months, weekly checks; escrow released ~40% on verification, then 20% at 3, 6 and 12 months (cumulative rounding: a 1-credit link releases at 3 months, 2 credits = 1 now + 1 at 6 months) |
 | Removal | 2 failed checks -> email both sides -> 7-day grace -> refund unreleased credits to requester, penalty to giver, reputation hit; repeat offenders suspended |
-| Free plan | 1 site per workspace, 3 open link requests, 2 starter credits after first site approval |
+| Free plan | 2 sites per workspace (raised from 1 on 2026-10-06), 3 open link requests, 2 starter credits after first site approval |
 | Notifications | Email (Resend) |
 | Admin | Site/user moderation, disputes, platform analytics, editable rules |
 | Admin account | sujitk@solguruz.com |
-| Hosting | Vercel + Neon Postgres; Inngest for background jobs |
+| Guest posts | 800+ words, one link with the agreed anchor, 3 revision rounds before the host may reject; host publishes within 7 days of approval |
+| AI | Full drafts allowed but must be edited; AI-assisted posts labelled; 20 suggestions + 3 drafts per workspace per month; never medical/financial/legal advice, competitor names, invented stats/quotes, or banned niches |
+| Escrow (confirmed 2026-10-06) | Small deals stay held back (1 credit at 3 months; 2 = 1 now + 1 at 6 months) |
+| Penalties (confirmed 2026-10-06) | May push a giver's balance negative (blocks spending, not earning) |
+| Vercel plan (2026-10-06) | Hobby for now: both cron jobs daily |
+| Emails (2026-10-06) | Instant by default; per-category daily digest or off; urgent and security always instant; monthly report on by default |
+| Reports (2026-10-06) | Workspace CSV exports, admin analytics dashboard, monthly email report, admin CSV exports |
+| Rate limiting (2026-10-06) | Postgres-based (no new vendor) |
+| Legal (2026-10-06) | Draft Terms/Privacy written for lawyer review |
+| Merge (2026-10-06) | One PR from the Phase 6 branch into main |
+| Hosting | Vercel + Neon Postgres; background jobs as Vercel Cron -> route handlers (no extra vendor; can move to Inngest if jobs outgrow cron) |
 | Language | English only |
 | Domain | None yet |
 
@@ -37,15 +47,19 @@ Agreed with the product owner on 2026-10-05.
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Repo, CI, auth (email, Google, 2FA), workspaces and roles, admin rules, full schema | **Built** |
-| 1 | Sites: add, 4 ownership-verification methods, Ahrefs adapter, quality rules, admin review queue, starter credits | Next |
-| 2 | Credit ledger in use, link requests, manual ABC proposals, deals and legs, messaging | |
-| 3 | Matching engine + footprint guard (Inngest jobs) | |
-| 4 | Weekly link checker, escrow releases, penalties, disputes, reputation | |
-| 5 | Guest-post workflow + AI features | |
-| 6 | Email notification set, admin analytics, reports/CSV export, security hardening, launch | |
+| 1 | Sites: add, 4 ownership-verification methods, Ahrefs adapter, quality rules, admin review queue, starter credits | **Built** |
+| 2 | Credit ledger in use, link requests, manual ABC proposals, deals and legs, messaging | **Built** |
+| 3 | Matching engine + footprint guard (cron-triggered jobs) | **Built** |
+| 4 | Weekly link checker, escrow releases, penalties, disputes, reputation | **Built** |
+| 5 | Guest-post workflow + AI features | **Built** |
+| 6 | Email preferences + digest + monthly report, inbox, CSV exports, admin analytics, rate limiting, security hardening, legal drafts, e2e in CI | **Built** |
 
 ## Risks
 - Google's spam policies treat large-scale link exchanges as link schemes. Non-reciprocal
   routing and quality controls reduce but don't remove the risk; the Terms of Service must say so.
 - Displaying Ahrefs metrics to the public may need a specific Ahrefs API plan/licence. Confirm before launch.
-- Login rate limiting needs a shared store on serverless (e.g. Upstash Redis); planned for Phase 6.
+- The Ahrefs adapter is written against the documented v3 endpoints but has not been run against the live API yet.
+- With 1 site per free workspace, manual ABC swaps need a second site on one side; free users trade through credits (requests/offers), which is non-reciprocal by design.
+- Removal penalties go to the receiver as compensation and may push the giver below zero; a negative balance blocks spending until earned back.
+- The crawler identifies as LinkableBot; sites with aggressive bot protection may need manual confirmation.
+- Terms of Service and Privacy Policy are drafts and need legal review before launch.

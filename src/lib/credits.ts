@@ -43,8 +43,10 @@ export function priceLink(input: PriceInput, rules: PriceRules): number | null {
 }
 
 // Staged escrow release over the guarantee period: 40% on verification,
-// then 20% at 3, 6 and 12 months. Rounding remainder goes to the first stage
-// so the stages always add up to the full amount.
+// then 20% at 3, 6 and 12 months. Amounts follow the cumulative schedule
+// rounded to whole credits, so small deals still hold most credits back
+// (1 credit -> released at 3 months; 2 -> 1 now, 1 at 6 months) and the
+// stages always add up to the total.
 export const RELEASE_SCHEDULE = [
   { afterMonths: 0, share: 0.4 },
   { afterMonths: 3, share: 0.2 },
@@ -52,12 +54,16 @@ export const RELEASE_SCHEDULE = [
   { afterMonths: 12, share: 0.2 },
 ] as const;
 
-export function releaseStages(total: number, verifiedAt: Date): { amount: number; releaseAt: Date }[] {
-  const amounts = RELEASE_SCHEDULE.map((s) => Math.floor(total * s.share));
-  amounts[0] += total - amounts.reduce((a, b) => a + b, 0);
+export function releaseStages(total: number, verifiedAt: Date): { amount: number; releaseAt: Date; afterMonths: number }[] {
+  let cumulativeShare = 0;
+  let releasedSoFar = 0;
   return RELEASE_SCHEDULE.map((s, i) => {
+    cumulativeShare += s.share;
+    const target = i === RELEASE_SCHEDULE.length - 1 ? total : Math.round(total * cumulativeShare);
+    const amount = target - releasedSoFar;
+    releasedSoFar = target;
     const releaseAt = new Date(verifiedAt);
     releaseAt.setUTCMonth(releaseAt.getUTCMonth() + s.afterMonths);
-    return { amount: amounts[i], releaseAt };
+    return { amount, releaseAt, afterMonths: s.afterMonths };
   }).filter((s) => s.amount > 0);
 }

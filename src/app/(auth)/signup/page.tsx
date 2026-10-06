@@ -37,6 +37,20 @@ export default function SignupPage() {
         <Field label="Password" hint="At least 10 characters.">
           <Input name="password" type="password" autoComplete="new-password" minLength={10} required />
         </Field>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" name="terms" required className="mt-1" />
+          <span>
+            I agree to the{" "}
+            <a href="/terms" target="_blank" className="text-accent">
+              Terms of Service
+            </a>{" "}
+            and{" "}
+            <a href="/privacy" target="_blank" className="text-accent">
+              Privacy Policy
+            </a>
+            , including the search-engine risk described there.
+          </span>
+        </label>
       </ActionForm>
     </>
   );

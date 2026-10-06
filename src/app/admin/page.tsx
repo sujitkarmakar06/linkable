@@ -1,18 +1,20 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
-import { updateSettingsAction } from "@/server/actions/admin";
+import { runDailyNowAction, runMatchingNowAction, updateSettingsAction } from "@/server/actions/admin";
 import { ActionForm } from "@/components/action-form";
 import { Card, Field, Input, PageHeader } from "@/components/ui";
 
 export const metadata: Metadata = { title: "Admin" };
 
 export default async function AdminPage() {
-  const [settings, users, workspaces, sitesPending] = await Promise.all([
+  const [settings, users, workspaces, sitesPending, openRequests, liveMatches] = await Promise.all([
     getSettings(),
     db.user.count(),
     db.workspace.count(),
     db.site.count({ where: { status: "PENDING_REVIEW" } }),
+    db.linkRequest.count({ where: { status: "OPEN" } }),
+    db.match.count({ where: { status: "OFFERED", expiresAt: { gt: new Date() } } }),
   ]);
 
   const num = (name: keyof typeof settings, label: string, hint?: string) => (
@@ -36,6 +38,12 @@ export default async function AdminPage() {
           </div>
         ))}
       </div>
+      <Card title="Matching" description={`${openRequests} open requests · ${liveMatches} live match offers. Runs via cron and whenever a request is posted or a giving site is approved.`} className="mb-6 max-w-3xl">
+        <ActionForm action={runMatchingNowAction} submit="Run matching now" variant="secondary" />
+      </Card>
+      <Card title="Daily jobs" description="Overdue placements, link checks, scheduled escrow releases and deal completion. Runs daily via cron." className="mb-6 max-w-3xl">
+        <ActionForm action={runDailyNowAction} submit="Run daily jobs now" variant="secondary" />
+      </Card>
       <Card title="Marketplace rules" description="Changes apply immediately, no deploy needed." className="max-w-3xl">
         <ActionForm action={updateSettingsAction} submit="Save rules">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -49,6 +57,10 @@ export default async function AdminPage() {
             {num("graceDays", "Grace period to restore a removed link (days)")}
             {num("removalPenaltyCredits", "Penalty for early removal (credits)")}
             {num("pairCooldownMonths", "Months before the same two workspaces can trade again")}
+            {num("guestPostMinWords", "Guest posts: minimum words")}
+            {num("guestPostMaxRevisions", "Guest posts: revision rounds before the host may reject")}
+            {num("aiSuggestionsPerMonth", "AI anchor/placement suggestions per workspace per month")}
+            {num("aiDraftsPerMonth", "AI guest-post drafts per workspace per month")}
           </div>
           <Field label="Banned niches" hint="Comma-separated.">
             <Input name="bannedNiches" defaultValue={settings.bannedNiches.join(", ")} />

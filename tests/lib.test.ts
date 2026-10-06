@@ -53,9 +53,12 @@ describe("crypto + totp", () => {
     const { generateSecret, verifyTotp, generateRecoveryCodes } = await import("@/lib/totp");
     const secret = generateSecret();
     const token = await generate({ secret });
-    expect(await verifyTotp(secret, token)).toBe(true);
-    expect(await verifyTotp(secret, token === "000000" ? "111111" : "000000")).toBe(false);
-    expect(await verifyTotp(secret, "abc")).toBe(false);
+    const ok = await verifyTotp(secret, token);
+    expect(ok.valid).toBe(true);
+    expect((await verifyTotp(secret, token === "000000" ? "111111" : "000000")).valid).toBe(false);
+    expect((await verifyTotp(secret, "abc")).valid).toBe(false);
+    // replay protection: the same step can't be used again
+    expect((await verifyTotp(secret, token, ok.timeStep)).valid).toBe(false);
     const codes = generateRecoveryCodes();
     expect(new Set(codes).size).toBe(8);
     expect(codes[0]).toMatch(/^[0-9a-f]{5}-[0-9a-f]{5}$/);

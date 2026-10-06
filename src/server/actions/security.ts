@@ -8,6 +8,7 @@ import { decrypt, encrypt } from "@/lib/crypto";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { generateRecoveryCodes, generateSecret, hashRecoveryCode, totpUri, verifySecondFactor, verifyTotp } from "@/lib/totp";
 import { requireUser } from "@/server/session";
+import { LIMITS, reserve, succeeded, tooMany } from "@/server/ratelimit";
 import type { FormState } from "./types";
 
 // Step 1: create a pending secret and return the QR code. 2FA is not on
@@ -27,16 +28,18 @@ export async function confirmTwoFactorAction(_: FormState, form: FormData): Prom
   const user = await requireUser();
   if (!user.twoFactorSecret) return { error: "Start setup again." };
   const code = String(form.get("code") ?? "").trim();
-  if (!(await verifyTotp(decrypt(user.twoFactorSecret), code))) return { error: "That code didn't match. Check your phone's clock and try again." };
+  const check = await verifyTotp(decrypt(user.twoFactorSecret), code);
+  if (!check.valid) return { error: "That code didn't match. Check your phone's clock and try again." };
   const codes = generateRecoveryCodes();
   const hashes = await Promise.all(codes.map(hashRecoveryCode));
   await db.$transaction([
     db.recoveryCode.deleteMany({ where: { userId: user.id } }),
     db.recoveryCode.createMany({ data: hashes.map((codeHash) => ({ userId: user.id, codeHash })) }),
-    db.user.update({ where: { id: user.id }, data: { twoFactorEnabled: true } }),
+    db.user.update({ where: { id: user.id }, data: { twoFactorEnabled: true, lastTotpStep: check.timeStep ?? null, sessionVersion: { increment: 1 } } }),
     db.auditLog.create({ data: { actorId: user.id, action: "user.2fa_enabled" } }),
   ]);
-  revalidatePath("/app/account");
+  // Every session (this one included) must sign in again with 2FA. No revalidate
+  // here, so the recovery codes are shown before that happens.
   return { ok: "Two-factor authentication is on.", data: { codes } };
 }
 
@@ -44,14 +47,16 @@ export async function disableTwoFactorAction(_: FormState, form: FormData): Prom
   const user = await requireUser();
   if (!user.twoFactorEnabled) return { error: "Two-factor authentication is already off." };
   const code = String(form.get("code") ?? "");
+  const slot = await reserve([{ key: `2fa:user:${user.id}`, limit: LIMITS.twoFactor, failuresOnly: true }]);
+  if (slot.wait) return { error: tooMany(slot.wait) };
   if (!(await verifySecondFactor(user, code, true))) return { error: "Enter a valid code from your app or a recovery code." };
+  await succeeded(slot.ids);
   await db.$transaction([
     db.recoveryCode.deleteMany({ where: { userId: user.id } }),
-    db.user.update({ where: { id: user.id }, data: { twoFactorEnabled: false, twoFactorSecret: null } }),
+    db.user.update({ where: { id: user.id }, data: { twoFactorEnabled: false, twoFactorSecret: null, lastTotpStep: null, sessionVersion: { increment: 1 } } }),
     db.auditLog.create({ data: { actorId: user.id, action: "user.2fa_disabled" } }),
   ]);
-  revalidatePath("/app/account");
-  return { ok: "Two-factor authentication is off." };
+  return { ok: "Two-factor authentication is off. Please sign in again." };
 }
 
 export async function updateProfileAction(_: FormState, form: FormData): Promise<FormState> {
@@ -71,6 +76,7 @@ export async function changePasswordAction(_: FormState, form: FormData): Promis
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   // Google-only accounts have no password yet; let them set one.
   if (user.passwordHash && !(await verifyPassword(parsed.data.current ?? "", user.passwordHash))) return { error: "Current password is incorrect." };
-  await db.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(parsed.data.next) } });
-  return { ok: "Password updated." };
+  await db.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(parsed.data.next), sessionVersion: { increment: 1 } } });
+  await db.auditLog.create({ data: { actorId: user.id, action: "user.password_changed" } });
+  return { ok: "Password updated. You've been signed out everywhere - sign in again with your new password." };
 }

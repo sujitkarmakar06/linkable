@@ -1,3 +1,4 @@
+import { LegalLinks } from "@/components/legal";
 import { Logo } from "@/components/logo";
 
 export default function AuthLayout({ children }: LayoutProps<"/">) {
@@ -7,6 +8,9 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
         <Logo />
       </div>
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6">{children}</div>
+      <div className="mt-6 text-xs text-muted">
+        <LegalLinks />
+      </div>
     </main>
   );
 }

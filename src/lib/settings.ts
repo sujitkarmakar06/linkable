@@ -21,3 +21,9 @@ export async function getSettings(): Promise<PlatformSettings & { creditTiers: C
   });
   return { ...row, creditTiers: row.creditTiers as CreditTier[] };
 }
+
+export const priceRules = (s: { creditTiers: CreditTier[]; nofollowMultiplier: number; guestPostBonus: number }) => ({
+  tiers: s.creditTiers,
+  nofollowMultiplier: s.nofollowMultiplier,
+  guestPostBonus: s.guestPostBonus,
+});

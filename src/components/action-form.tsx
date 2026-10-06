@@ -21,16 +21,18 @@ export function ActionForm({
   children,
   variant,
   className = "flex flex-col gap-4",
+  id,
 }: {
   action: (state: FormState, form: FormData) => Promise<FormState>;
   submit: ReactNode;
   children?: ReactNode;
   variant?: "primary" | "secondary" | "danger";
   className?: string;
+  id?: string;
 }) {
   const [state, formAction] = useActionState(action, undefined);
   return (
-    <form action={formAction} className={className}>
+    <form id={id} action={formAction} className={className}>
       {children}
       {state?.error && <Alert tone="error">{state.error}</Alert>}
       {state?.ok && <Alert tone="success">{state.ok}</Alert>}

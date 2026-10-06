@@ -24,7 +24,7 @@ export default async function DashboardPage() {
   const [settings, balances, sites, openRequests, members] = await Promise.all([
     getSettings(),
     getBalances(workspace.id),
-    db.site.count({ where: { workspaceId: workspace.id } }),
+    db.site.count({ where: { workspaceId: workspace.id, status: { not: "REJECTED" } } }),
     db.linkRequest.count({ where: { workspaceId: workspace.id, status: "OPEN" } }),
     db.membership.count({ where: { workspaceId: workspace.id } }),
   ]);
@@ -33,7 +33,7 @@ export default async function DashboardPage() {
     { done: true, label: "Create your workspace" },
     { done: user.twoFactorEnabled, label: "Turn on two-factor authentication", href: "/app/account" },
     { done: members > 1, label: "Invite your team (optional)", href: "/app/workspace" },
-    { done: sites > 0, label: `Add and verify your first site (DR ${settings.minDomainRating}+) - coming next` },
+    { done: sites > 0, label: `Add and verify your first site (DR ${settings.minDomainRating}+)`, href: "/app/sites" },
   ];
 
   return (

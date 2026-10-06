@@ -20,6 +20,10 @@ const settingsSchema = z.object({
   graceDays: int(0, 60),
   removalPenaltyCredits: int(0, 100),
   pairCooldownMonths: int(0, 60),
+  guestPostMinWords: int(100, 5000),
+  guestPostMaxRevisions: int(0, 10),
+  aiSuggestionsPerMonth: int(0, 10000),
+  aiDraftsPerMonth: int(0, 1000),
 });
 
 export async function updateSettingsAction(_: FormState, form: FormData): Promise<FormState> {
@@ -30,4 +34,22 @@ export async function updateSettingsAction(_: FormState, form: FormData): Promis
   await db.auditLog.create({ data: { actorId: admin.id, action: "admin.settings_updated", meta: parsed.data } });
   revalidatePath("/admin");
   return { ok: "Rules saved." };
+}
+
+export async function runMatchingNowAction(): Promise<FormState> {
+  const admin = await requireAdmin();
+  const { runMatching } = await import("@/server/matching");
+  const r = await runMatching();
+  await db.auditLog.create({ data: { actorId: admin.id, action: "admin.matching_run", meta: r } });
+  revalidatePath("/admin");
+  return { ok: `Checked ${r.requests} open requests: ${r.created} new matches, ${r.expired} expired.` };
+}
+
+export async function runDailyNowAction(): Promise<FormState> {
+  const admin = await requireAdmin();
+  const { runDaily } = await import("@/server/jobs");
+  const r = await runDaily();
+  await db.auditLog.create({ data: { actorId: admin.id, action: "admin.daily_run", meta: r } });
+  revalidatePath("/admin");
+  return { ok: `Overdue flagged: ${r.overdue}. Links checked: ${r.checks.checked} (${r.checks.ok} ok, ${r.checks.failed} failing). Escrow releases: ${r.released}. Deals completed: ${r.completed}. Digests sent: ${r.digests}. Monthly reports: ${r.reports}.` };
 }
