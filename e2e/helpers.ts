@@ -97,6 +97,13 @@ export async function ledgerSum() {
   return (await db.creditEntry.aggregate({ _sum: { amount: true } }))._sum.amount ?? 0;
 }
 
+// Connect Search Console through the UI (GSC_FAKE stands in for Google).
+export async function connectGsc(page: Page, siteId: string) {
+  await page.goto(`/app/sites/${siteId}`);
+  await page.getByRole("link", { name: "Connect Search Console" }).click();
+  await expect(page.getByText("Search Console connected.")).toBeVisible();
+}
+
 export async function runDaily(page: Page) {
   const res = await page.request.get("/api/cron/daily", { headers: CRON });
   expect(res.status()).toBe(200);

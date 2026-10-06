@@ -16,6 +16,8 @@ import { countWords, safeMarkdownSource } from "@/lib/guestpost";
 import { getSettings } from "@/lib/settings";
 import { aiEnabled, aiUsageThisMonth } from "@/server/ai";
 import { marked } from "marked";
+import { describeIndex } from "@/lib/indexing";
+import { ImpactTable } from "@/components/impact-table";
 import { Alert, Card, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export const metadata: Metadata = { title: "Deal" };
@@ -29,7 +31,16 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
   const deal = await db.deal.findFirst({
     where: { id, participants: { some: { workspaceId: workspace.id } } },
     include: {
-      legs: { include: { fromSite: true, toSite: true, guestPost: true, checks: { orderBy: { checkedAt: "desc" }, take: 5 } }, orderBy: { createdAt: "asc" } },
+      legs: {
+        include: {
+          fromSite: { include: { gsc: { select: { id: true } } } },
+          toSite: { include: { gsc: { select: { id: true } } } },
+          guestPost: true,
+          checks: { orderBy: { checkedAt: "desc" }, take: 5 },
+          impacts: true,
+        },
+        orderBy: { createdAt: "asc" },
+      },
       participants: { include: { workspace: true } },
       disputes: { orderBy: { createdAt: "desc" } },
       reviews: true,
@@ -69,6 +80,7 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
         {deal.legs.map((leg, i) => {
           const giving = leg.giverWorkspaceId === workspace.id;
           const receiving = leg.receiverWorkspaceId === workspace.id;
+          const indexView = describeIndex(leg, Boolean(leg.fromSite.gsc));
           return (
             <Card key={leg.id}>
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -101,11 +113,29 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
                     </dd>
                   </div>
                 )}
+                {indexView && (
+                  <div>
+                    <dt className="inline text-muted">Google: </dt>
+                    <dd className="inline">
+                      <span className={indexView.tone === "success" ? "text-success" : indexView.tone === "danger" ? "text-danger" : ""}>{indexView.label}.</span>{" "}
+                      <span className="text-muted">{indexView.detail}</span>
+                      {giving && !leg.fromSite.gsc && leg.indexState === "PENDING" && (
+                        <>
+                          {" "}
+                          <a href={`/app/sites/${leg.fromSiteId}`} className="text-accent">
+                            Connect Search Console
+                          </a>
+                        </>
+                      )}
+                    </dd>
+                  </div>
+                )}
                 {leg.credits > 0 && (
                   <div>
                     <dt className="inline text-muted">Credits: </dt>
                     <dd className="inline">
-                      {leg.credits} in escrow from {names.get(leg.receiverWorkspaceId)}, released to the giver in stages over the guarantee (about 40% on confirmation, then at 3, 6 and 12 months)
+                      {leg.credits} in escrow from {names.get(leg.receiverWorkspaceId)}, released to the giver in stages once Google has indexed the page (about 40% then, the rest
+                      at 3, 6 and 12 months)
                     </dd>
                   </div>
                 )}
@@ -192,6 +222,21 @@ ${leg.guestPost.body}`} className="w-full rounded-md border border-border bg-bg 
                     ))}
                   </ul>
                   {leg.status === "FAILING" && leg.failingSince && <p className="mt-1 text-danger">Failing since {day(leg.failingSince)}. Restore the link before the grace period ends to avoid a penalty.</p>}
+                </div>
+              )}
+              {receiving && leg.verifiedAt && (
+                <div className="mt-4 border-t border-border pt-4">
+                  <div className="mb-2 text-sm font-medium">Impact on {leg.targetUrl.replace(/^https?:\/\//, "")}</div>
+                  {leg.toSite.gsc ? (
+                    <ImpactTable liveAt={leg.verifiedAt} impacts={leg.impacts} />
+                  ) : (
+                    <p className="text-sm text-muted">
+                      <a href={`/app/sites/${leg.toSiteId}`} className="text-accent">
+                        Connect Search Console for {leg.toSite.domain}
+                      </a>{" "}
+                      to see this page&apos;s Google clicks, impressions and position before and after the link.
+                    </p>
+                  )}
                 </div>
               )}
               {canAct && receiving && leg.status === "PLACED" && (

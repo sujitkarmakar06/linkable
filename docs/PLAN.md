@@ -53,6 +53,23 @@ Agreed with the product owner on 2026-10-05.
 | 4 | Weekly link checker, escrow releases, penalties, disputes, reputation | **Built** |
 | 5 | Guest-post workflow + AI features | **Built** |
 | 6 | Email preferences + digest + monthly report, inbox, CSV exports, admin analytics, rate limiting, security hardening, legal drafts, e2e in CI | **Built** |
+| 7 | Proof: link impact tracking (Search Console clicks/impressions/position at 30/60/90 days), indexing check gating escrow | **Built** |
+| 8 | Safety: link profile planner (anchor mix, link velocity warnings), AI relevance score in matching | Planned |
+| 9 | Placement: WordPress plugin (verify + approved insertion + report back), opt-in broken-link swaps | Planned |
+| 10 | Growth: expert quote requests, invite non-member sites, branded agency client reports | Planned |
+
+## Phase 7-10 decisions (owner, 2026-10-06)
+- **Indexing gate:** escrow pays out only once Google has indexed the linking page; if not indexed within
+  30 days, credits return to the receiver. Hosts must connect Search Console (stored, encrypted refresh token).
+- **Impact tracking:** receiver's Search Console data for the target page, before vs 30/60/90 days after the link went live. No Ahrefs.
+- **WordPress plugin:** host clicks Approve in Linkable, plugin inserts the link into the agreed post and reports back;
+  also one-click ownership verification. Distributed as a zip download first; WordPress.org submission later.
+- **Broken-link swaps:** opt-in per site; replacements priced like normal links.
+- **Expert quotes:** free, no credits; capped per workspace per month.
+- **Invites:** inviter gets 1 bonus credit once the invited site passes verification and admin approval; max 5 bonuses a month.
+- **Client reports:** branded monthly PDF per client site (agency logo + colour, no Linkable branding) plus a private read-only share link.
+- **Pricing:** everything free for now; features that could become paid later (plugin auto-placement, client reports) are flagged in code.
+- Ahrefs is still never called without the owner's explicit permission each time.
 
 ## Risks
 - Google's spam policies treat large-scale link exchanges as link schemes. Non-reciprocal

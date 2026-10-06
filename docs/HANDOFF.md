@@ -1,26 +1,20 @@
 # Linkable - handoff notes
 
-Last updated: 2026-10-06, end of Phase 6 (all planned phases built). Read this first when resuming.
+Last updated: 2026-10-06, Phase 7 built on `phase-7-proof`. Read this first when resuming.
 
 ## Where things stand
 | Branch | Contents | State |
 |---|---|---|
-| `main` | Phase 0: auth, workspaces, admin rules, full schema | pushed |
-| `phase-1-sites` | + Phase 1: sites, 4 ownership-verification methods, metrics, quality rules, admin review | pushed |
-| `phase-2-deals` | + Phase 2: marketplace, link requests, offers, ABC swaps, deals, messaging, credits | pushed |
-| `phase-3-matching` | + Phase 3: automatic matching, footprint guard | pushed |
-| `phase-4-trust` | + Phase 4: link crawler, escrow releases, penalties, disputes, reviews, reputation | pushed |
-| `phase-5-content` | + Phase 5: guest-post workflow, AI anchors / placement finder / drafts, free plan 2 sites | pushed |
-| `phase-6-launch` | + Phase 6: notifications/digest/reports, exports, analytics, security hardening, legal drafts, e2e in CI | pushed, **latest**; PR into `main` opened with the owner's approval |
+| `main` | Phases 0-6 (merged via PR #4) + show/hide password toggle | **live** on Vercel: https://linkable-qe8q.vercel.app |
+| `phase-7-proof` | + Phase 7: Search Console connection, indexing gate on escrow, link impact tracking | pushed for review, not merged |
 
-Each branch is stacked on the previous one. The owner approved **one PR from `phase-6-launch` into
-`main`** (contains every phase); the owner merges it. Nothing else is merged.
-
-Not deployed anywhere yet (no Vercel project, no domain).
+Production: Vercel Hobby project `linkable-qe8q` (Sujit's GitHub account, region cle1), Neon Postgres
+(us-east-2), Resend with the `onboarding@resend.dev` test sender (only delivers to sujitk@solguruz.com
+until a domain is verified). No custom domain yet. Pushing to `main` deploys automatically.
 
 ## Owner's working rules (must follow)
 - Don't commit, push or open a PR without the owner's permission. (Pushing each finished phase
-  to its own branch has been approved; PRs and merges have not.)
+  to its own branch is approved; merging to `main` deploys to production, so ask first.)
 - **Never call Ahrefs without asking first, every time** ("Should I touch Ahrefs?"). This also
   applies to the owner's team. The Ahrefs adapter (`src/lib/seo/ahrefs.ts`) has never been run
   against the live API - a first test lookup needs explicit permission.
@@ -29,7 +23,7 @@ Not deployed anywhere yet (no Vercel project, no domain).
 
 ## Decisions made
 See `docs/PLAN.md` for the full table. Key numbers: min DR 30, min 500 visits/month, banned niches
-(casino, gambling, adult, pharma, cbd, crypto, loans), free plan = 1 site + 3 open requests,
+(casino, gambling, adult, pharma, cbd, crypto, loans), free plan = 2 sites + 3 open requests,
 2 starter credits on first approved site, DR-tier pricing (30-39=1, 40-59=2, 60-79=4, 80+=8),
 12-month guarantee, weekly checks, 7-day grace, 2-credit removal penalty, 6-month pair cooldown.
 
@@ -62,8 +56,23 @@ posts, sessions surviving password/2FA changes (`User.sessionVersion`; no browse
 missing brute-force limits and TOTP replay (`LoginAttempt`, `User.lastTotpStep`), message planting,
 proposal close race, missing headers, tokens in production logs, login timing.
 
+## Phase 7 - what was built (owner decisions 2026-10-06, see docs/PLAN.md)
+- `GscConnection` per site: one Google sign-in (offline, `webmasters.readonly`) proves ownership if needed
+  and stores an encrypted refresh token. Site page has Connect / Reconnect / Disconnect (revokes).
+  `src/lib/gsc.ts` (client + `GSC_FAKE`), `src/server/gsc.ts` (`withGsc`, reconnect notice once a week).
+- Indexing gate: on verification escrow stages are only *scheduled* (`scheduleEscrow`); `DealLeg.indexState`
+  goes PENDING with a 30-day deadline. Daily job (`src/server/indexing.ts`) inspects the page in the host's
+  Search Console; INDEXED -> due stages release; reminder 7 days before; deadline -> EXPIRED + refund to
+  receiver. Disputed deals pause it. Links verified before Phase 7 are EXEMPT (migration).
+- Impact (`src/server/impact.ts`, `src/lib/impact.ts`): receiver's Search Console totals for the target page,
+  28 days before vs 28 days ending 30/60/90 days after. Deal page table (receiver only) + `/app/impact`.
+- Needs before real use: Google sign-in configured, and the Google OAuth app published + verified. In
+  "Testing" mode only test users can connect and Google expires their access after 7 days.
+
 ## Next steps (ask the owner)
-- Production deploy on Vercel + Neon (README checklist); Resend domain verification.
+- Finish the live smoke test (sign-up, site verification, admin approval); Google sign-in setup;
+  custom domain + Resend domain verification.
+- Phases 8-10 (planned in docs/PLAN.md): safety, placement (WordPress plugin), growth.
 - Legal review of `/terms` and `/privacy`; then remove the draft banner (`src/components/legal.tsx`).
 - First real Claude API and Ahrefs calls (Ahrefs only with explicit permission) and a cost check.
 - Possible later work: paid plans (Stripe), notification bell dropdown, more admin moderation tools.
@@ -83,10 +92,10 @@ Schema changes: `prisma migrate dev` refuses to run non-interactively here, so g
 then `prisma migrate deploy`. Set both `DATABASE_URL` and `DIRECT_URL` when targeting another DB.
 
 ## Testing notes
-- 72 unit tests (`tests/`) and 10 Playwright end-to-end tests (`e2e/`, run with `npm run e2e`;
+- 91 unit tests (`tests/`) and 11 Playwright end-to-end tests (`e2e/`, run with `npm run e2e`;
   locally set `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium` in this sandbox). Both run in CI.
-- The sandbox blocks direct outbound HTTP, so live DNS/meta/file/GSC verification and real crawls
-  were never run; local page serving uses `FETCH_HOST_OVERRIDES` (ignored in production).
+- The sandbox blocks direct outbound HTTP, so live DNS/meta/file/GSC verification, real crawls and real
+  Search Console calls were never run; local page serving uses `FETCH_HOST_OVERRIDES` (ignored in production).
 
 ## Env vars still needed for a real deployment
 DATABASE_URL, DIRECT_URL (Neon), AUTH_SECRET, ENCRYPTION_KEY, APP_URL, PLATFORM_ADMIN_EMAILS,

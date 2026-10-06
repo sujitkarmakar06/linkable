@@ -48,7 +48,7 @@ export default async function MatchesPage() {
                 </div>
                 <div className="text-right">
                   <div className="text-2xl font-semibold tabular-nums">+{m.credits}</div>
-                  <div className="text-xs text-muted">credits, released in stages</div>
+                  <div className="text-xs text-muted">credits, paid in stages once Google indexes the page</div>
                 </div>
               </div>
               <p className="mt-3 break-all text-sm">

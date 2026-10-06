@@ -1,6 +1,7 @@
 import "server-only";
 import type { DealLeg, DealStatus, Prisma, Proposal } from "@prisma/client";
 import { releaseStages } from "@/lib/credits";
+import { indexDeadlineFrom } from "@/lib/indexing";
 import { db } from "@/lib/db";
 import { availableIn, lockWorkspaces, transferCredits } from "@/lib/ledger";
 import { getSettings } from "@/lib/settings";
@@ -122,28 +123,13 @@ export async function acceptProposal(proposal: Proposal, userId: string): Promis
   });
 }
 
-// Release the first escrow stage now and schedule the rest (processed by the
-// Phase 4 job). Receiver's escrow -> giver's available balance.
-export async function releaseOnVerify(tx: Prisma.TransactionClient, leg: DealLeg, userId: string | null) {
+// Schedule the escrow stages for a verified link. Nothing is paid yet: the
+// daily job releases due stages once Google has indexed the linking page.
+export async function scheduleEscrow(tx: Prisma.TransactionClient, leg: DealLeg, verifiedAt: Date) {
   if (leg.credits <= 0) return;
   // Never schedule twice for the same link.
   if (await tx.escrowRelease.count({ where: { legId: leg.id } })) return;
-  const stages = releaseStages(leg.credits, new Date());
-  for (const s of stages) {
-    const now = s.afterMonths === 0;
-    if (now)
-      await transferCredits(tx, {
-        from: { workspaceId: leg.receiverWorkspaceId, bucket: "ESCROW" },
-        to: { workspaceId: leg.giverWorkspaceId, bucket: "AVAILABLE" },
-        amount: s.amount,
-        reason: "ESCROW_RELEASE",
-        dealId: leg.dealId,
-        legId: leg.id,
-        note: "Link verified - first release",
-        createdById: userId ?? undefined,
-      });
-    await tx.escrowRelease.create({ data: { dealId: leg.dealId, legId: leg.id, amount: s.amount, releaseAt: s.releaseAt, releasedAt: now ? new Date() : null } });
-  }
+  for (const s of releaseStages(leg.credits, verifiedAt)) await tx.escrowRelease.create({ data: { dealId: leg.dealId, legId: leg.id, amount: s.amount, releaseAt: s.releaseAt } });
 }
 
 // Credits still held in escrow for one link: its price minus what was released
@@ -195,14 +181,18 @@ export async function recomputeDealStatus(tx: Prisma.TransactionClient, dealId: 
 }
 
 // First verification of a placed link (by the crawler or the receiver):
-// release the first escrow stage, reward on-time placement, fulfil the request.
+// schedule escrow (paid once indexed), reward on-time placement, fulfil the request.
 export async function markVerified(tx: Prisma.TransactionClient, leg: DealLeg, userId: string | null) {
   const deal = await tx.deal.findUniqueOrThrow({ where: { id: leg.dealId } });
   if (["CANCELLED", "COMPLETED", "DISPUTED"].includes(deal.status)) throw new DealError("This deal is closed or disputed.");
   // Only a placed link can be verified for the first time; a concurrent change wins.
-  const { count } = await tx.dealLeg.updateMany({ where: { id: leg.id, status: "PLACED" }, data: { status: "VERIFIED", verifiedAt: new Date(), consecutiveFailures: 0, failingSince: null } });
+  const now = new Date();
+  const { count } = await tx.dealLeg.updateMany({
+    where: { id: leg.id, status: "PLACED" },
+    data: { status: "VERIFIED", verifiedAt: now, consecutiveFailures: 0, failingSince: null, indexState: "PENDING", indexDeadline: indexDeadlineFrom(now) },
+  });
   if (count !== 1) throw new DealError("This link isn't waiting for verification.");
-  await releaseOnVerify(tx, leg, userId);
+  await scheduleEscrow(tx, leg, now);
   if (leg.linkRequestId) await tx.linkRequest.update({ where: { id: leg.linkRequestId }, data: { status: "FULFILLED" } });
   if (leg.placedAt && leg.dueAt && leg.placedAt <= leg.dueAt) await adjustReputation(tx, leg.giverWorkspaceId, REPUTATION.verifiedOnTime, "link placed on time", userId);
   await recomputeDealStatus(tx, leg.dealId);

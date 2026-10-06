@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { approvedSite, balance, db, grantCredits, ledgerSum, newUser, partnerSite, resetDb, runDaily, waitFor } from "./helpers";
+import { approvedSite, balance, connectGsc, db, grantCredits, ledgerSum, newUser, partnerSite, resetDb, runDaily, waitFor } from "./helpers";
 
 test.beforeEach(resetDb);
 
@@ -14,8 +14,9 @@ test("crawler verifies, link fails, grace period, removal penalty, dispute pause
     const X = await newUser(browser, "Sujit", "admin@linkable.test", "SolGuruz SEO");
     const Y = await newUser(browser, "Pat", "pat@partner.com", "Partner Media");
     await approvedSite(X.ws.id, "a-money.com", { dr: 50 });
-    await approvedSite(Y.ws.id, "b-partner.com", { dr: 45 });
+    const bPartner = await approvedSite(Y.ws.id, "b-partner.com", { dr: 45 });
     await grantCredits(X.ws.id, 10);
+    await connectGsc(Y.page, bPartner.id);
 
     async function deal(target: string, anchor: string) {
       await X.page.goto("/app/requests/new");
@@ -32,11 +33,14 @@ test("crawler verifies, link fails, grace period, removal penalty, dispute pause
     const legStatus = async (id: string) => (await db.dealLeg.findUniqueOrThrow({ where: { id } })).status;
     const age = (id: string, days: number) => db.dealLeg.update({ where: { id }, data: { lastCheckedAt: new Date(Date.now() - days * 86_400_000) } });
 
-    // 1. placed -> verified by the crawler, first release paid
+    // 1. placed -> verified by the crawler; first release once Google has indexed the page
     const d1 = await deal("https://a-money.com/pricing", "pricing tool");
     await Y.page.fill("input[name=sourcePageUrl]", "https://b-partner.com/blog/one");
     await Y.page.getByRole("button", { name: "Mark as placed" }).click();
     await waitFor(() => legStatus(d1.leg.id), (s) => s === "VERIFIED", "verified");
+    expect(await balance(Y.ws.id, "AVAILABLE")).toBe(0);
+    await runDaily(X.page);
+    expect((await db.dealLeg.findUniqueOrThrow({ where: { id: d1.leg.id } })).indexState).toBe("INDEXED");
     expect(await balance(Y.ws.id, "AVAILABLE")).toBe(1);
 
     // 2. missing twice -> FAILING; grace over -> REMOVED with penalty
@@ -52,7 +56,7 @@ test("crawler verifies, link fails, grace period, removal penalty, dispute pause
     expect(await balance(X.ws.id, "ESCROW")).toBe(0);
     expect(await balance(Y.ws.id, "AVAILABLE")).toBe(1 - 2); // penalty pushes into debt
 
-    // 3. dispute holds a scheduled release; dismissal resumes it
+    // 3. dispute holds indexing and releases; dismissal resumes them
     mode = "ok";
     const d2 = await deal("https://a-money.com/features", "feature list");
     await Y.page.fill("input[name=sourcePageUrl]", "https://b-partner.com/blog/two");
@@ -73,7 +77,8 @@ test("crawler verifies, link fails, grace period, removal penalty, dispute pause
     await expect(X.page.getByText("Dispute resolved.")).toBeVisible();
     await db.dealLeg.update({ where: { id: d2.leg.id }, data: { lastCheckedAt: new Date() } });
     await runDaily(X.page);
-    expect(await balance(Y.ws.id, "AVAILABLE")).toBe(before + 1);
+    // Indexed now, and every stage was made due above: the whole 2 credits.
+    expect(await balance(Y.ws.id, "AVAILABLE")).toBe(before + 2);
     expect(await ledgerSum()).toBe(0);
   } finally {
     server.close();

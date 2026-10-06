@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { approvedSite, balance, db, grantCredits, ledgerSum, newUser, resetDb, waitFor } from "./helpers";
+import { approvedSite, balance, connectGsc, db, grantCredits, ledgerSum, newUser, resetDb, runDaily, waitFor } from "./helpers";
 
 test.beforeEach(resetDb);
 
@@ -46,7 +46,7 @@ test("request -> offer -> escrow -> manual confirm; ABC swap with counter-offer"
   await approvedSite(X.ws.id, "a-money.com", { dr: 50, give: false });
   await approvedSite(X.ws.id, "c-giver.com", { dr: 40, receive: false });
   const a2 = await approvedSite(X.ws.id, "a-two.com", { dr: 42, give: false });
-  await approvedSite(Y.ws.id, "b-partner.com", { dr: 45 });
+  const bPartner = await approvedSite(Y.ws.id, "b-partner.com", { dr: 45 });
   await grantCredits(X.ws.id, 4);
 
   await X.page.goto("/app/requests/new");
@@ -76,6 +76,12 @@ test("request -> offer -> escrow -> manual confirm; ABC swap with counter-offer"
   await X.page.reload();
   await X.page.getByRole("button", { name: "Confirm manually" }).click();
   await expect(X.page.getByText("Confirmed live. Thanks!")).toBeVisible();
+  // Nothing is paid until Google has indexed the page, which needs the host's Search Console.
+  expect(await balance(Y.ws.id, "AVAILABLE")).toBe(0);
+  await expect(X.page.getByText("Waiting for Google to index the page")).toBeVisible();
+  await connectGsc(Y.page, bPartner.id);
+  await db.dealLeg.updateMany({ where: { fromSiteId: bPartner.id }, data: { lastCheckedAt: new Date() } }); // skip the crawler this run
+  await runDaily(X.page);
   expect(await balance(Y.ws.id, "AVAILABLE")).toBe(1);
 
   // ABC swap: b-partner -> a-two, c-giver -> b-partner; counter flips the turn.

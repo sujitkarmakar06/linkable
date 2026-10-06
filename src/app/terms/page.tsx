@@ -36,7 +36,7 @@ export default function TermsPage() {
       <h2>4. Credits</h2>
       <ul>
         <li>Credits are a usage unit inside Linkable. They have no cash value, cannot be bought back, transferred outside the platform or exchanged for money, and expire if your account is closed.</li>
-        <li>Credits for a link are held in escrow and released to the site that placed it in stages over the guarantee period. We may reverse, refund or adjust credits to correct errors, resolve disputes or respond to abuse.</li>
+        <li>Credits for a link are held in escrow and released to the site that placed it in stages over the guarantee period, starting once Google has indexed the page carrying the link, as reported by the host&apos;s Google Search Console. If the page is not indexed within 30 days of the link being verified, the escrowed credits are returned to the receiver. We may reverse, refund or adjust credits to correct errors, resolve disputes or respond to abuse.</li>
         <li>Penalties for removing a link early may result in a negative balance, which blocks spending until it is earned back.</li>
       </ul>
 

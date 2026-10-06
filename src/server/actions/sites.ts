@@ -8,6 +8,7 @@ import { randomToken } from "@/lib/crypto";
 import { normalizeDomain } from "@/lib/domain";
 import { isBannedNiche, isNiche } from "@/lib/niches";
 import { getSettings } from "@/lib/settings";
+import { disconnect } from "@/server/gsc";
 import { markVerified, recordVerifyFailure, runVerification } from "@/server/sites";
 import { requireMembership } from "@/server/session";
 import type { FormState } from "./types";
@@ -89,4 +90,12 @@ export async function deleteSiteAction(form: FormData) {
   await db.auditLog.create({ data: { actorId: user.id, workspaceId: workspace.id, action: "site.deleted", meta: { domain: site.domain } } });
   revalidatePath("/app/sites");
   redirect("/app/sites");
+}
+
+export async function disconnectGscAction(form: FormData) {
+  const { user, workspace, site } = await ownSite(String(form.get("siteId")));
+  await disconnect(site.id);
+  await db.auditLog.create({ data: { actorId: user.id, workspaceId: workspace.id, action: "site.gsc_disconnected", target: site.id } });
+  revalidatePath(`/app/sites/${site.id}`);
+  redirect(`/app/sites/${site.id}?gsc=disconnected`);
 }

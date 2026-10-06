@@ -6,6 +6,9 @@ import { adjustReputation, REPUTATION } from "@/lib/reputation";
 import { checkLeg, dueLegIds } from "@/server/linkcheck";
 import { notifyWorkspace, sendDigests } from "@/server/notify";
 import { runMonthlyReports } from "@/server/reports";
+import { PAYABLE_INDEX_STATES } from "@/lib/indexing";
+import { expireUnindexed, remindUnindexed, runIndexChecks } from "@/server/indexing";
+import { runImpactFetch } from "@/server/impact";
 
 // Overdue placements: tell both sides once, and dock the giver's reputation.
 export async function flagOverdue() {
@@ -54,18 +57,23 @@ export async function runLinkChecks(limit = 60, concurrency = 6) {
   return { checked: ids.length, ok, failed };
 }
 
-// Scheduled escrow stages. Held while the link is failing or the deal is disputed.
-export async function releaseDueEscrow() {
-  const due = await db.escrowRelease.findMany({ where: { releaseAt: { lte: new Date() }, releasedAt: null, cancelledAt: null }, take: 500 });
+// Scheduled escrow stages. Held until Google has indexed the linking page, and
+// while the link is failing or the deal is disputed.
+export async function releaseDueEscrow(legIds?: string[]) {
+  const due = await db.escrowRelease.findMany({
+    where: { releaseAt: { lte: new Date() }, releasedAt: null, cancelledAt: null, ...(legIds ? { legId: { in: legIds } } : {}) },
+    orderBy: { releaseAt: "asc" },
+    take: 500,
+  });
   let released = 0;
   for (const r of due) {
     const leg = await db.dealLeg.findUnique({ where: { id: r.legId }, include: { deal: true } });
-    if (!leg || leg.status !== "VERIFIED" || leg.consecutiveFailures > 0 || leg.deal.status === "DISPUTED") continue;
+    if (!leg || leg.status !== "VERIFIED" || leg.consecutiveFailures > 0 || leg.deal.status === "DISPUTED" || !PAYABLE_INDEX_STATES.includes(leg.indexState)) continue;
     await db.$transaction(async (tx) => {
       await lockWorkspaces(tx, [leg.giverWorkspaceId, leg.receiverWorkspaceId]);
       const fresh = await tx.dealLeg.findUniqueOrThrow({ where: { id: leg.id }, include: { deal: true } });
       // Hold payouts while the latest check failed, even before the leg is FAILING.
-      if (fresh.status !== "VERIFIED" || fresh.consecutiveFailures > 0 || fresh.deal.status === "DISPUTED") return;
+      if (fresh.status !== "VERIFIED" || fresh.consecutiveFailures > 0 || fresh.deal.status === "DISPUTED" || !PAYABLE_INDEX_STATES.includes(fresh.indexState)) return;
       if ((await escrowHeld(tx, fresh)) < r.amount) return; // nothing left to pay out
       const { count } = await tx.escrowRelease.updateMany({ where: { id: r.id, releasedAt: null, cancelledAt: null }, data: { releasedAt: new Date() } });
       if (!count) return;
@@ -76,7 +84,7 @@ export async function releaseDueEscrow() {
         reason: "ESCROW_RELEASE",
         dealId: leg.dealId,
         legId: leg.id,
-        note: "Scheduled release",
+        note: r.releaseAt.getTime() === fresh.verifiedAt?.getTime() ? "Link verified and indexed - first release" : "Scheduled release",
       });
       released++;
     });
@@ -108,11 +116,15 @@ export async function completeDeals() {
 export async function runDaily() {
   const overdue = await flagOverdue();
   const checks = await runLinkChecks();
+  const indexing = await runIndexChecks();
+  const notIndexed = await expireUnindexed();
+  const indexReminders = await remindUnindexed();
   const released = await releaseDueEscrow();
   const completed = await completeDeals();
+  const impact = await runImpactFetch();
   const digests = await sendDigests();
   const reports = await runMonthlyReports();
   // Rate-limit records only matter for minutes; keep a day for investigation.
   const pruned = (await db.loginAttempt.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 86_400_000) } } })).count;
-  return { overdue, checks, released, completed, digests, reports, pruned };
+  return { overdue, checks, indexing: { checked: indexing.checked, indexed: indexing.indexed.length }, notIndexed, indexReminders, released, completed, impact, digests, reports, pruned };
 }

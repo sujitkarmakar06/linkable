@@ -6,7 +6,7 @@ import { hasRole } from "@/lib/roles";
 import { getSettings } from "@/lib/settings";
 import type { SpamSignal } from "@/lib/spam";
 import { dnsRecordValue, htmlFileContent, htmlFilePath, metaTagHtml } from "@/lib/verification";
-import { deleteSiteAction, updateSiteAction, verifySiteAction } from "@/server/actions/sites";
+import { deleteSiteAction, disconnectGscAction, updateSiteAction, verifySiteAction } from "@/server/actions/sites";
 import { requireMembership } from "@/server/session";
 import { ActionForm } from "@/components/action-form";
 import { SiteFields } from "@/components/site-fields";
@@ -16,11 +16,15 @@ import { Alert, Button, Card, PageHeader } from "@/components/ui";
 export const metadata: Metadata = { title: "Site" };
 
 const GSC_MESSAGES: Record<string, ["success" | "error", string]> = {
-  ok: ["success", "Verified through Google Search Console."],
+  ok: ["success", "Verified through Google Search Console, and Search Console is connected."],
+  ok_no_token: ["success", "Verified through Google Search Console. Connect it again below so Linkable can check indexing."],
+  connected: ["success", "Search Console connected."],
+  no_token: ["error", "Google didn't grant ongoing access. Try connecting again and approve the consent screen."],
+  disconnected: ["success", "Search Console disconnected. You can also remove Linkable under your Google account's third-party access settings."],
   not_owner: ["error", "That Google account isn't an owner or full user of this domain in Search Console."],
   taken: ["error", "This domain is already verified by another workspace."],
   cancelled: ["error", "Google sign-in was cancelled."],
-  error: ["error", "Search Console check failed. Try again or use another method."],
+  error: ["error", "Search Console check failed. Try again in a moment."],
 };
 
 function Code({ children }: { children: string }) {
@@ -46,7 +50,7 @@ export default async function SitePage({ params, searchParams }: PageProps<"/app
   const { id } = await params;
   const { gsc } = await searchParams;
   const { membership, workspace } = await requireMembership();
-  const site = await db.site.findFirst({ where: { id, workspaceId: workspace.id } });
+  const site = await db.site.findFirst({ where: { id, workspaceId: workspace.id }, include: { gsc: true } });
   if (!site) notFound();
   const settings = await getSettings();
   const canManage = hasRole(membership.role, "ADMIN");
@@ -100,7 +104,10 @@ export default async function SitePage({ params, searchParams }: PageProps<"/app
                   <div className="mt-3 flex flex-col gap-3 text-sm">
                     {gscEnabled() ? (
                       <>
-                        <p>Sign in with a Google account that is an owner or full user of {site.domain} in Search Console. We only read your list of properties, once.</p>
+                        <p>
+                          Sign in with a Google account that is an owner or full user of {site.domain} in Search Console. This also connects Search Console (read-only), which
+                          you need anyway to get paid for links you host.
+                        </p>
                         <div>
                           <a href={`/api/gsc/start?siteId=${site.id}`} className="inline-flex rounded-md border border-border px-3.5 py-2 font-medium">
                             Verify with Google
@@ -112,6 +119,57 @@ export default async function SitePage({ params, searchParams }: PageProps<"/app
                     )}
                   </div>
                 </details>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {site.verifiedAt && (
+          <Card
+            title="Google Search Console"
+            description="Read-only access. As a host, Linkable checks that pages with your links are indexed by Google; escrow is paid only after that. As a receiver, it shows each link's effect on your page's search traffic."
+          >
+            {site.gsc ? (
+              <div className="flex flex-col gap-3 text-sm">
+                {site.gsc.lastError ? (
+                  <Alert tone="error">Google stopped accepting the connection: {site.gsc.lastError} Reconnect to keep payouts and impact reports working.</Alert>
+                ) : (
+                  <Alert tone="success">
+                    Connected{site.gsc.googleEmail ? ` as ${site.gsc.googleEmail}` : ""} on {site.gsc.connectedAt.toISOString().slice(0, 10)}.
+                  </Alert>
+                )}
+                <div>
+                  <span className="text-muted">Properties: </span>
+                  {site.gsc.properties.join(", ")}
+                </div>
+                {canManage && (
+                  <div className="flex flex-wrap gap-2">
+                    {gscEnabled() && (
+                      <a href={`/api/gsc/start?siteId=${site.id}`} className="inline-flex rounded-md border border-border px-3.5 py-2 font-medium">
+                        Reconnect
+                      </a>
+                    )}
+                    <form action={disconnectGscAction}>
+                      <input type="hidden" name="siteId" value={site.id} />
+                      <Button variant="secondary">Disconnect</Button>
+                    </form>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 text-sm">
+                <Alert tone="error">Not connected. Payouts for links on {site.domain} wait until Google indexing can be confirmed, and impact reports are unavailable.</Alert>
+                {!canManage ? (
+                  <p className="text-muted">A workspace admin needs to connect Search Console.</p>
+                ) : gscEnabled() ? (
+                  <div>
+                    <a href={`/api/gsc/start?siteId=${site.id}`} className="inline-flex rounded-md border border-border px-3.5 py-2 font-medium">
+                      Connect Search Console
+                    </a>
+                  </div>
+                ) : (
+                  <p className="text-muted">Not available yet: the platform&apos;s Google keys aren&apos;t configured.</p>
+                )}
               </div>
             )}
           </Card>

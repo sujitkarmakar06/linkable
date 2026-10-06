@@ -272,11 +272,12 @@ model Site {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   linkRequests LinkRequest[]
   matches      Match[]
-  legsGiven    DealLeg[]     @relation("LegFromSite")
-  legsReceived DealLeg[]     @relation("LegToSite")
+  legsGiven    DealLeg[]      @relation("LegFromSite")
+  legsReceived DealLeg[]      @relation("LegToSite")
+  gsc          GscConnection?
 
   @@unique([workspaceId, domain])
   @@index([domain])
@@ -398,6 +399,14 @@ enum DealStatus {
   DISPUTED
 }
 
+enum IndexState {
+  NOT_STARTED // link not verified yet
+  PENDING // verified, waiting for Google to index the page
+  INDEXED
+  EXPIRED // not indexed by the deadline; escrow refunded to the receiver
+  EXEMPT // verified before the indexing rule existed
+}
+
 enum LegStatus {
   PENDING
   CONTENT_SUBMITTED
@@ -493,6 +502,14 @@ model DealLeg {
   lastCheckedAt       DateTime?
   overdueNotifiedAt   DateTime?
   removedAt           DateTime?
+  // Escrow only pays out once Google has indexed the linking page (checked in
+  // the host's Search Console). Not indexed by indexDeadline -> receiver refunded.
+  indexState          IndexState    @default(NOT_STARTED)
+  indexDeadline       DateTime?
+  indexedAt           DateTime?
+  indexCheckedAt      DateTime?
+  indexCoverage       String? // Google's coverage state, e.g. "Crawled - currently not indexed"
+  indexReminderAt     DateTime?
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
@@ -502,8 +519,10 @@ model DealLeg {
   linkRequest LinkRequest? @relation(fields: [linkRequestId], references: [id])
   checks      LinkCheck[]
   guestPost   GuestPost?
+  impacts     LinkImpact[]
 
   @@index([dealId])
+  @@index([indexState])
   @@index([status])
   @@index([fromSiteId])
   @@index([toSiteId])
@@ -779,4 +798,48 @@ model MetricsCache {
   fetchedAt DateTime @default(now())
 
   @@id([domain, provider])
+}
+
+// Read-only Search Console access for one site, kept to check indexing (as
+// host) and measure link impact (as receiver). The refresh token is encrypted.
+model GscConnection {
+  id            String    @id @default(cuid())
+  siteId        String    @unique
+  // Properties covering the site that the account owns or fully uses,
+  // e.g. ["sc-domain:example.com", "https://www.example.com/"].
+  properties    String[]
+  refreshToken  String // encrypt()ed
+  googleEmail   String?
+  connectedById String
+  connectedAt   DateTime  @default(now())
+  lastUsedAt    DateTime?
+  lastError     String?
+  lastErrorAt   DateTime?
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+}
+
+enum ImpactWindow {
+  BASELINE // 28 days before the link went live
+  D30 // 28 days ending 30 days after
+  D60
+  D90
+}
+
+// Search Console numbers for the linked-to page, before and after the link.
+model LinkImpact {
+  id          String       @id @default(cuid())
+  legId       String
+  window      ImpactWindow
+  startDate   DateTime     @db.Date
+  endDate     DateTime     @db.Date
+  clicks      Int
+  impressions Int
+  ctr         Float
+  position    Float? // null when the page had no impressions
+  fetchedAt   DateTime     @default(now())
+
+  leg DealLeg @relation(fields: [legId], references: [id], onDelete: Cascade)
+
+  @@unique([legId, window])
 }

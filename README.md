@@ -126,7 +126,9 @@ terminal with their link, so you can click through locally.
 Outbound checks refuse private addresses. For local testing only (ignored when `NODE_ENV=production`),
 `FETCH_HOST_OVERRIDES="partner.com=127.0.0.1:4555"` sends requests for that domain to a local server.
 `AI_FAKE=1` (also ignored in production) returns canned AI responses so flows can be tested without
-an API key or cost.
+an API key or cost. `GSC_FAKE=1` (also ignored in production) replaces Google Search Console: "Connect
+Search Console" succeeds at once, every domain is owned except ones containing `notowner`, every page is
+indexed except URLs containing `not-indexed`, and impact numbers are made up.
 
 ## Checks
 ```bash
@@ -149,6 +151,9 @@ production. CI (`.github/workflows/ci.yml`) runs the checks and the e2e suite on
 - [ ] `AUTH_SECRET`, `ENCRYPTION_KEY` (never change after launch), `APP_URL`, `CRON_SECRET`, `PLATFORM_ADMIN_EMAILS`
 - [ ] `RESEND_API_KEY` + `EMAIL_FROM` on a verified domain - **required in production** (signup and reset fail without it)
 - [ ] Google OAuth client with both redirect URIs; Search Console API enabled
+- [ ] Google OAuth app **published and verified** for the `webmasters.readonly` scope. While the app is in
+      "Testing", only listed test users can connect Search Console and Google expires their access after
+      7 days, which stops indexing checks (and so escrow payouts) until they reconnect
 - [ ] `ANTHROPIC_API_KEY` (optional), `AHREFS_API_KEY` (optional; confirm the Ahrefs licence allows showing metrics)
 - [ ] Build command `prisma migrate deploy && npm run build`
 - [ ] Terms of Service and Privacy Policy reviewed by a lawyer and the draft banner removed

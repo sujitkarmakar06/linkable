@@ -54,6 +54,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
             Proposals {pending > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-xs text-accent-fg">{pending}</span>}
           </NavLink>
           <NavLink href="/app/deals">Deals</NavLink>
+          <NavLink href="/app/impact">Impact</NavLink>
           <NavLink href="/app/credits">Credits</NavLink>
           <NavLink href="/app/workspace">Workspace</NavLink>
           <NavLink href="/app/account">Account</NavLink>
