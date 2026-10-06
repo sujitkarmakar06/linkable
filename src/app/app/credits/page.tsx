@@ -30,7 +30,19 @@ export default async function CreditsPage() {
   ]);
   return (
     <>
-      <PageHeader title="Credits" description="Earn credits by placing links for others; spend them on links to your sites." />
+      <PageHeader title="Credits" description="Earn credits by placing links for others; spend them on links to your sites.">
+        <div className="flex flex-wrap gap-2 text-sm">
+          {[
+            ["ledger", "Credits CSV"],
+            ["links", "Links CSV"],
+            ["checks", "Link checks CSV"],
+          ].map(([k, l]) => (
+            <a key={k} href={`/api/export/${k}`} className="rounded-md border border-border px-3 py-1.5 hover:border-accent">
+              {l}
+            </a>
+          ))}
+        </div>
+      </PageHeader>
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {[
           ["Available", balances.available, "Ready to spend"],

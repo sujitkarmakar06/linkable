@@ -142,3 +142,14 @@ describe("ahrefs adapter", () => {
     await expect(createAhrefsProvider("BAD", fake).getDomainMetrics("example.com")).rejects.toThrow(/HTTP 401/);
   });
 });
+
+describe("isPrivateIp: IPv6 forms that embed IPv4", () => {
+  it("unwraps mapped, compatible and NAT64 addresses", () => {
+    const hosts = ["[::ffff:127.0.0.1]", "[::ffff:a9fe:a9fe]", "[::ffff:7f00:1]", "::ffff:10.0.0.1", "[::127.0.0.1]", "64:ff9b::a9fe:a9fe", "[::]", "fe80::1%eth0", "2001:db8::1"];
+    for (const h of hosts) expect(isPrivateIp(h), h).toBe(true);
+    for (const h of ["::ffff:8.8.8.8", "[2606:4700:4700::1111]", "64:ff9b::808:808"]) expect(isPrivateIp(h), h).toBe(false);
+    // what the URL parser actually produces for a mapped literal
+    expect(isPrivateIp(new URL("http://[::ffff:127.0.0.1]/").hostname)).toBe(true);
+    expect(isPrivateIp("not-an-ip")).toBe(true);
+  });
+});

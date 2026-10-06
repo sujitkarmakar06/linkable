@@ -16,7 +16,7 @@ export const REPEAT_REMOVALS_FOR_SUSPENSION = 3;
 // Fetch the source page, record a LinkCheck, and move the leg through its states.
 export async function checkLeg(legId: string): Promise<CheckVerdict | null> {
   const leg = await db.dealLeg.findUnique({ where: { id: legId }, include: { fromSite: true, toSite: true, deal: true } });
-  if (!leg || !leg.sourcePageUrl || !["PLACED", "VERIFIED", "FAILING"].includes(leg.status) || leg.deal.status === "DISPUTED") return null;
+  if (!leg || !leg.sourcePageUrl || !["PLACED", "VERIFIED", "FAILING"].includes(leg.status) || ["DISPUTED", "CANCELLED", "COMPLETED"].includes(leg.deal.status)) return null;
   const settings = await getSettings();
 
   let status: number | null = null;
@@ -60,8 +60,9 @@ export async function checkLeg(legId: string): Promise<CheckVerdict | null> {
 
   await db.$transaction(async (tx) => {
     await lockWorkspaces(tx, [leg.giverWorkspaceId, leg.receiverWorkspaceId]);
-    const fresh = await tx.dealLeg.findUniqueOrThrow({ where: { id: leg.id } });
-    if (fresh.status !== leg.status) return; // changed meanwhile (manual confirm, dispute)
+    const fresh = await tx.dealLeg.findUniqueOrThrow({ where: { id: leg.id }, include: { deal: true } });
+    // Changed meanwhile (manual confirm, cancel, dispute): leave it alone.
+    if (fresh.status !== leg.status || ["DISPUTED", "CANCELLED", "COMPLETED"].includes(fresh.deal.status)) return;
     await tx.dealLeg.update({ where: { id: leg.id }, data: { lastCheckedAt: now, consecutiveFailures: next.consecutiveFailures, failingSince: next.failingSince } });
     if (next.event === "verified") await markVerified(tx, fresh, null);
     else if (next.event === "failing" || next.event === "restored") {
@@ -92,6 +93,7 @@ export async function removeLeg(
       amount: penalty,
       reason: "PENALTY",
       dealId: leg.dealId,
+      legId: leg.id,
       note: reason,
       createdById: actorId ?? undefined,
     });

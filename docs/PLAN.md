@@ -26,6 +26,11 @@ Agreed with the product owner on 2026-10-05.
 | Escrow (confirmed 2026-10-06) | Small deals stay held back (1 credit at 3 months; 2 = 1 now + 1 at 6 months) |
 | Penalties (confirmed 2026-10-06) | May push a giver's balance negative (blocks spending, not earning) |
 | Vercel plan (2026-10-06) | Hobby for now: both cron jobs daily |
+| Emails (2026-10-06) | Instant by default; per-category daily digest or off; urgent and security always instant; monthly report on by default |
+| Reports (2026-10-06) | Workspace CSV exports, admin analytics dashboard, monthly email report, admin CSV exports |
+| Rate limiting (2026-10-06) | Postgres-based (no new vendor) |
+| Legal (2026-10-06) | Draft Terms/Privacy written for lawyer review |
+| Merge (2026-10-06) | One PR from the Phase 6 branch into main |
 | Hosting | Vercel + Neon Postgres; background jobs as Vercel Cron -> route handlers (no extra vendor; can move to Inngest if jobs outgrow cron) |
 | Language | English only |
 | Domain | None yet |
@@ -47,7 +52,7 @@ Agreed with the product owner on 2026-10-05.
 | 3 | Matching engine + footprint guard (cron-triggered jobs) | **Built** |
 | 4 | Weekly link checker, escrow releases, penalties, disputes, reputation | **Built** |
 | 5 | Guest-post workflow + AI features | **Built** |
-| 6 | Email notification set, admin analytics, reports/CSV export, security hardening, launch | Next |
+| 6 | Email preferences + digest + monthly report, inbox, CSV exports, admin analytics, rate limiting, security hardening, legal drafts, e2e in CI | **Built** |
 
 ## Risks
 - Google's spam policies treat large-scale link exchanges as link schemes. Non-reciprocal
@@ -57,4 +62,4 @@ Agreed with the product owner on 2026-10-05.
 - With 1 site per free workspace, manual ABC swaps need a second site on one side; free users trade through credits (requests/offers), which is non-reciprocal by design.
 - Removal penalties go to the receiver as compensation and may push the giver below zero; a negative balance blocks spending until earned back.
 - The crawler identifies as LinkableBot; sites with aggressive bot protection may need manual confirmation.
-- Login rate limiting needs a shared store on serverless (e.g. Upstash Redis); planned for Phase 6.
+- Terms of Service and Privacy Policy are drafts and need legal review before launch.

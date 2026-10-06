@@ -32,6 +32,11 @@ export async function createWorkspaceAction(_: FormState, form: FormData): Promi
   const user = await requireUser();
   const name = z.string().trim().min(2, "Name must be at least 2 characters").max(60).safeParse(form.get("name"));
   if (!name.success) return { error: name.error.issues[0].message };
+  // Google sign-ups skip the signup form, so they accept the terms here.
+  if (!user.termsAcceptedAt) {
+    if (form.get("terms") !== "on") return { error: "Please accept the Terms of Service and Privacy Policy." };
+    await db.user.update({ where: { id: user.id }, data: { termsAcceptedAt: new Date() } });
+  }
   const workspace = await db.workspace.create({
     data: {
       name: name.data,

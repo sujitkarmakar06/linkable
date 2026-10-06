@@ -4,6 +4,7 @@ import { requireUser } from "@/server/session";
 import { ActionForm } from "@/components/action-form";
 import { Card, Field, Input, PageHeader } from "@/components/ui";
 import { TwoFactor } from "./two-factor";
+import { EmailPrefs } from "./email-prefs";
 
 export const metadata: Metadata = { title: "Account" };
 
@@ -31,6 +32,9 @@ export default async function AccountPage() {
               <Input name="next" type="password" autoComplete="new-password" minLength={10} required />
             </Field>
           </ActionForm>
+        </Card>
+        <Card title="Email notifications">
+          <EmailPrefs user={user} />
         </Card>
         <Card title="Two-factor authentication">
           <TwoFactor enabled={user.twoFactorEnabled} />

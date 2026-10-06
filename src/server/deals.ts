@@ -124,6 +124,8 @@ export async function acceptProposal(proposal: Proposal, userId: string): Promis
 // Phase 4 job). Receiver's escrow -> giver's available balance.
 export async function releaseOnVerify(tx: Prisma.TransactionClient, leg: DealLeg, userId: string | null) {
   if (leg.credits <= 0) return;
+  // Never schedule twice for the same link.
+  if (await tx.escrowRelease.count({ where: { legId: leg.id } })) return;
   const stages = releaseStages(leg.credits, new Date());
   for (const s of stages) {
     const now = s.afterMonths === 0;
@@ -134,6 +136,7 @@ export async function releaseOnVerify(tx: Prisma.TransactionClient, leg: DealLeg
         amount: s.amount,
         reason: "ESCROW_RELEASE",
         dealId: leg.dealId,
+        legId: leg.id,
         note: "Link verified - first release",
         createdById: userId ?? undefined,
       });
@@ -141,9 +144,19 @@ export async function releaseOnVerify(tx: Prisma.TransactionClient, leg: DealLeg
   }
 }
 
+// Credits still held in escrow for one link: its price minus what was released
+// to the giver and what was already refunded. Derived from the ledger, so
+// refunding is idempotent however many paths try it.
+export async function escrowHeld(tx: Prisma.TransactionClient, leg: DealLeg): Promise<number> {
+  const [released, refunded] = await Promise.all([
+    tx.escrowRelease.aggregate({ where: { legId: leg.id, releasedAt: { not: null } }, _sum: { amount: true } }),
+    tx.creditEntry.aggregate({ where: { legId: leg.id, reason: "ESCROW_REFUND", bucket: "AVAILABLE" }, _sum: { amount: true } }),
+  ]);
+  return Math.max(0, leg.credits - (released._sum.amount ?? 0) - (refunded._sum.amount ?? 0));
+}
+
 export async function refundLeg(tx: Prisma.TransactionClient, leg: DealLeg, userId: string | null) {
-  const released = await tx.escrowRelease.aggregate({ where: { legId: leg.id, releasedAt: { not: null } }, _sum: { amount: true } });
-  const remaining = leg.credits - (released._sum.amount ?? 0);
+  const remaining = await escrowHeld(tx, leg);
   await tx.escrowRelease.updateMany({ where: { legId: leg.id, releasedAt: null, cancelledAt: null }, data: { cancelledAt: new Date() } });
   if (remaining > 0)
     await transferCredits(tx, {
@@ -152,6 +165,7 @@ export async function refundLeg(tx: Prisma.TransactionClient, leg: DealLeg, user
       amount: remaining,
       reason: "ESCROW_REFUND",
       dealId: leg.dealId,
+      legId: leg.id,
       createdById: userId ?? undefined,
     });
 }
@@ -179,7 +193,11 @@ export async function recomputeDealStatus(tx: Prisma.TransactionClient, dealId: 
 // First verification of a placed link (by the crawler or the receiver):
 // release the first escrow stage, reward on-time placement, fulfil the request.
 export async function markVerified(tx: Prisma.TransactionClient, leg: DealLeg, userId: string | null) {
-  await tx.dealLeg.update({ where: { id: leg.id }, data: { status: "VERIFIED", verifiedAt: new Date(), consecutiveFailures: 0, failingSince: null } });
+  const deal = await tx.deal.findUniqueOrThrow({ where: { id: leg.dealId } });
+  if (["CANCELLED", "COMPLETED", "DISPUTED"].includes(deal.status)) throw new DealError("This deal is closed or disputed.");
+  // Only a placed link can be verified for the first time; a concurrent change wins.
+  const { count } = await tx.dealLeg.updateMany({ where: { id: leg.id, status: "PLACED" }, data: { status: "VERIFIED", verifiedAt: new Date(), consecutiveFailures: 0, failingSince: null } });
+  if (count !== 1) throw new DealError("This link isn't waiting for verification.");
   await releaseOnVerify(tx, leg, userId);
   if (leg.linkRequestId) await tx.linkRequest.update({ where: { id: leg.linkRequestId }, data: { status: "FULFILLED" } });
   if (leg.placedAt && leg.dueAt && leg.placedAt <= leg.dueAt) await adjustReputation(tx, leg.giverWorkspaceId, REPUTATION.verifiedOnTime, "link placed on time", userId);
@@ -187,8 +205,19 @@ export async function markVerified(tx: Prisma.TransactionClient, leg: DealLeg, u
 }
 
 export async function placeLeg(leg: DealLeg, sourcePageUrl: string) {
+  // Insertions can be placed from PENDING, guest posts only once approved;
+  // PLACED allows correcting the URL. Checked under the lock so a concurrent
+  // cancel or verification can't be overwritten.
+  const from = leg.placementType === "GUEST_POST" ? ["CONTENT_APPROVED", "PLACED"] : ["PENDING", "PLACED"];
   await db.$transaction(async (tx) => {
-    await tx.dealLeg.update({ where: { id: leg.id }, data: { status: "PLACED", sourcePageUrl, placedAt: new Date() } });
+    await lockWorkspaces(tx, [leg.giverWorkspaceId, leg.receiverWorkspaceId]);
+    const deal = await tx.deal.findUniqueOrThrow({ where: { id: leg.dealId } });
+    if (["CANCELLED", "COMPLETED", "DISPUTED"].includes(deal.status)) throw new DealError("This deal is closed or disputed.");
+    const { count } = await tx.dealLeg.updateMany({
+      where: { id: leg.id, status: { in: from as ("PENDING" | "PLACED" | "CONTENT_APPROVED")[] } },
+      data: { status: "PLACED", sourcePageUrl, placedAt: new Date(), consecutiveFailures: 0 },
+    });
+    if (count !== 1) throw new DealError("This link can't be changed now.");
     await recomputeDealStatus(tx, leg.dealId);
   });
 }
@@ -205,17 +234,20 @@ export async function confirmLeg(leg: DealLeg, userId: string) {
 // Either side can cancel until any link has been placed; escrow is refunded.
 export async function cancelDeal(dealId: string, userId: string) {
   await db.$transaction(async (tx) => {
-    const deal = await tx.deal.findUniqueOrThrow({ where: { id: dealId }, include: { legs: true, participants: true } });
-    await lockWorkspaces(tx, deal.participants.map((p) => p.workspaceId));
+    const participants = await tx.dealParticipant.findMany({ where: { dealId } });
+    await lockWorkspaces(tx, participants.map((p) => p.workspaceId));
+    // Read state only after taking the locks.
+    const deal = await tx.deal.findUniqueOrThrow({ where: { id: dealId } });
+    if (deal.status === "CANCELLED") return;
+    if (["COMPLETED", "DISPUTED"].includes(deal.status)) throw new DealError("This deal can't be cancelled now.");
     const legs = await tx.dealLeg.findMany({ where: { dealId } });
     if (legs.some((l) => ["PLACED", "VERIFIED", "FAILING"].includes(l.status))) throw new DealError("A link has already been placed. Open a dispute instead.");
-    if (deal.status === "CANCELLED") return;
-    for (const leg of legs) {
+    for (const leg of legs.filter((l) => !["CANCELLED", "REMOVED"].includes(l.status))) {
       await refundLeg(tx, leg, userId);
       if (leg.linkRequestId) await tx.linkRequest.updateMany({ where: { id: leg.linkRequestId, status: "MATCHED" }, data: { status: "OPEN" } });
     }
     await tx.dealLeg.updateMany({ where: { dealId }, data: { status: "CANCELLED" } });
-    await tx.deal.update({ where: { id: dealId }, data: { status: "CANCELLED" } });
+    await tx.deal.updateMany({ where: { id: dealId, status: { not: "CANCELLED" } }, data: { status: "CANCELLED" } });
     await tx.auditLog.create({ data: { actorId: userId, action: "deal.cancelled", target: dealId } });
   });
 }

@@ -16,7 +16,7 @@ export function TwoFactor({ enabled }: { enabled: boolean }) {
     return (
       <div className="flex flex-col gap-3">
         <Alert tone="success">Two-factor authentication is on.</Alert>
-        <p className="text-sm">Save these recovery codes somewhere safe. Each one works once if you lose your phone. They won&apos;t be shown again.</p>
+        <p className="text-sm">Save these recovery codes somewhere safe. Each one works once if you lose your phone. They won&apos;t be shown again. After this you&apos;ll be asked to sign in again with your code.</p>
         <pre className="rounded-md border border-border bg-bg p-3 font-mono text-sm leading-7">{codes.join("\n")}</pre>
       </div>
     );

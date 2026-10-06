@@ -79,8 +79,11 @@ export async function reviewGuestPostAction(_: FormState, form: FormData): Promi
     if (changesLeft) return { error: `You can reject after ${settings.guestPostMaxRevisions} revision rounds. Request changes first, or open a dispute.` };
   }
 
-  await db.$transaction(async (tx) => {
+  const raced = await db.$transaction(async (tx) => {
     await lockWorkspaces(tx, [leg.giverWorkspaceId, leg.receiverWorkspaceId]);
+    // Re-check under the lock: a double submit or a concurrent cancel must not act twice.
+    const fresh = await tx.dealLeg.findUniqueOrThrow({ where: { id: leg.id }, include: { deal: true } });
+    if (fresh.status !== "CONTENT_SUBMITTED" || closedDeal(fresh.deal.status)) return true;
     if (decision.data === "approve") {
       await tx.guestPost.update({ where: { id: gp.id }, data: { status: "approved", hostNote: note || null } });
       // The host's publishing deadline starts now.
@@ -95,7 +98,9 @@ export async function reviewGuestPostAction(_: FormState, form: FormData): Promi
       await recomputeDealStatus(tx, leg.dealId);
     }
     await tx.auditLog.create({ data: { actorId: user.id, workspaceId: workspace.id, action: `guestpost.${decision.data}`, target: leg.id } });
+    return false;
   });
+  if (raced) return { error: "This post was already reviewed or the deal changed. Reload the page." };
   const titles = { approve: "Guest post approved", changes: "Changes requested on your guest post", reject: "Guest post rejected" };
   const bodies = {
     approve: `${leg.fromSite.domain} approved "${gp.title}" and will publish it.`,

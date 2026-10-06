@@ -1,6 +1,6 @@
 # Linkable - handoff notes
 
-Last updated: 2026-10-06, end of Phase 5. Read this first when resuming.
+Last updated: 2026-10-06, end of Phase 6 (all planned phases built). Read this first when resuming.
 
 ## Where things stand
 | Branch | Contents | State |
@@ -10,10 +10,11 @@ Last updated: 2026-10-06, end of Phase 5. Read this first when resuming.
 | `phase-2-deals` | + Phase 2: marketplace, link requests, offers, ABC swaps, deals, messaging, credits | pushed |
 | `phase-3-matching` | + Phase 3: automatic matching, footprint guard | pushed |
 | `phase-4-trust` | + Phase 4: link crawler, escrow releases, penalties, disputes, reviews, reputation | pushed |
-| `phase-5-content` | + Phase 5: guest-post workflow, AI anchors / placement finder / drafts, free plan 2 sites | pushed, **latest** |
+| `phase-5-content` | + Phase 5: guest-post workflow, AI anchors / placement finder / drafts, free plan 2 sites | pushed |
+| `phase-6-launch` | + Phase 6: notifications/digest/reports, exports, analytics, security hardening, legal drafts, e2e in CI | pushed, **latest**; PR into `main` opened with the owner's approval |
 
-Each branch is stacked on the previous one. Nothing is merged into `main` and **no PRs exist** -
-the owner hasn't asked for any. Start Phase 6 on a new branch `phase-6-launch` from `phase-5-content`.
+Each branch is stacked on the previous one. The owner approved **one PR from `phase-6-launch` into
+`main`** (contains every phase); the owner merges it. Nothing else is merged.
 
 Not deployed anywhere yet (no Vercel project, no domain).
 
@@ -51,13 +52,21 @@ Owner decisions confirmed on 2026-10-06:
 - The real Claude API path has **not** been run (no key in the sandbox); flows were tested with
   `AI_FAKE=1`. First real calls should be watched for output quality and cost.
 
-## Phase 6 - next (ask the owner before building)
-Planned: notification preferences (which emails, digest), admin analytics (signups, deals, credit
-economy, AI spend), reports / CSV export, login rate limiting (needs a shared store such as Upstash
-Redis), security review and hardening, Terms of Service / privacy pages, e2e tests moved into the
-repo (`e2e/`), production deploy on Vercel + Neon.
-Questions to ask: which reports and who receives them; email digest vs instant; Upstash OK as a new
-vendor; who writes the ToS (legal); target launch date and domain.
+## Phase 6 - what was built (owner decisions 2026-10-06)
+Instant + digest emails, inbox, monthly report; workspace + admin CSV exports; admin analytics;
+Postgres rate limiting; legal drafts for lawyer review; e2e in repo + CI; one PR into main.
+A security audit (subagent) found 3 high / 3 medium / 5 low issues - all fixed and covered by tests:
+double escrow refund (refunds now derived from the ledger, `CreditEntry.legId`), check-then-act races
+(lock first, conditional updates), IPv4-mapped IPv6 SSRF bypass (`src/lib/ip.ts`), raw HTML in guest
+posts, sessions surviving password/2FA changes (`User.sessionVersion`; no browser-triggerable re-sync),
+missing brute-force limits and TOTP replay (`LoginAttempt`, `User.lastTotpStep`), message planting,
+proposal close race, missing headers, tokens in production logs, login timing.
+
+## Next steps (ask the owner)
+- Production deploy on Vercel + Neon (README checklist); Resend domain verification.
+- Legal review of `/terms` and `/privacy`; then remove the draft banner (`src/components/legal.tsx`).
+- First real Claude API and Ahrefs calls (Ahrefs only with explicit permission) and a cost check.
+- Possible later work: paid plans (Stripe), notification bell dropdown, more admin moderation tools.
 
 ## How to run locally
 ```bash
@@ -74,9 +83,8 @@ Schema changes: `prisma migrate dev` refuses to run non-interactively here, so g
 then `prisma migrate deploy`. Set both `DATABASE_URL` and `DIRECT_URL` when targeting another DB.
 
 ## Testing notes
-- 64 unit tests (`tests/`). Browser end-to-end scripts used Playwright with
-  `/opt/pw-browsers/chromium` against a separate `linkable_e2e` database; they lived in the
-  session scratchpad and are not in the repo (worth adding under `e2e/` in Phase 6).
+- 72 unit tests (`tests/`) and 10 Playwright end-to-end tests (`e2e/`, run with `npm run e2e`;
+  locally set `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium` in this sandbox). Both run in CI.
 - The sandbox blocks direct outbound HTTP, so live DNS/meta/file/GSC verification and real crawls
   were never run; local page serving uses `FETCH_HOST_OVERRIDES` (ignored in production).
 

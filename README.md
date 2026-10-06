@@ -8,7 +8,24 @@ Every placed link is checked weekly and guaranteed for 12 months.
 
 See [`docs/PLAN.md`](docs/PLAN.md) for the full product plan and roadmap.
 
-## Status: Phase 5 (guest posts + AI) built
+## Status: Phase 6 (launch readiness) built - all planned phases complete
+
+Phase 6:
+- Email preferences per person: deals, messages and site reviews each instant, daily digest or off;
+  failing/removed links, overdue placements, disputes and security emails are always instant
+- In-app notification inbox with unread badge; daily digest email; monthly report email per workspace
+- CSV exports: workspace links, credit ledger and link-check history; admin users, workspaces, deals and
+  disputes (spreadsheet-formula injection neutralised)
+- Admin analytics: users, workspaces, live links and survival rate, deals per week, deals by status,
+  credit economy (must net to zero), AI usage and estimated spend
+- Security: Postgres-backed rate limits on login (per account and IP, also inside Auth.js), signup and
+  password reset; constant-time login; TOTP replay protection; 2FA-attempt limits; password or 2FA
+  changes end every existing session; security headers (CSP, frame-ancestors, HSTS, nosniff);
+  escrow refunds made idempotent and every deal transition re-checked under row locks; IPv6-mapped
+  addresses blocked in the outbound-fetch guard; guest posts reject raw HTML and non-http links;
+  user text escaped in emails; no live email links logged in production
+- Draft Terms of Service and Privacy Policy (marked for legal review), accepted at signup/onboarding
+- Browser end-to-end suite in `e2e/` (Playwright) running in CI
 
 Phase 5:
 - Guest-post workflow for links agreed as guest posts: the side receiving the link writes the post
@@ -88,7 +105,7 @@ Phase 0:
   double-entry credit ledger, escrow releases, link checks, disputes, reviews, audit log)
 - Credit pricing and escrow-release logic, with unit tests
 
-Next: Phase 6, notification preferences, admin analytics, reports/CSV export, login rate limiting, hardening, launch.
+Next: production deploy (see the checklist below) and legal review of the draft Terms/Privacy pages.
 
 ## Stack
 Next.js 16 (App Router, server actions) · TypeScript · Tailwind CSS 4 · Prisma 6 + PostgreSQL ·
@@ -115,7 +132,27 @@ an API key or cost.
 ```bash
 npm run lint && npm run typecheck && npm test && npm run build
 ```
-CI (`.github/workflows/ci.yml`) runs the same steps against a Postgres service.
+
+### End-to-end tests
+Playwright drives the real app (`next dev`) against a throwaway database. Every test wipes it, so the
+database name must contain `e2e` or `test`:
+```bash
+createdb linkable_e2e && DATABASE_URL=postgresql://.../linkable_e2e npx prisma migrate deploy
+npx playwright install chromium        # once
+E2E_DATABASE_URL=postgresql://.../linkable_e2e npm run e2e
+```
+The suite uses dev-only hooks (fake AI, local partner sites, an email outbox file); they are ignored in
+production. CI (`.github/workflows/ci.yml`) runs the checks and the e2e suite on every push and PR.
+
+## Production checklist
+- [ ] Neon database created; `DATABASE_URL` (pooled) and `DIRECT_URL` (direct) set
+- [ ] `AUTH_SECRET`, `ENCRYPTION_KEY` (never change after launch), `APP_URL`, `CRON_SECRET`, `PLATFORM_ADMIN_EMAILS`
+- [ ] `RESEND_API_KEY` + `EMAIL_FROM` on a verified domain - **required in production** (signup and reset fail without it)
+- [ ] Google OAuth client with both redirect URIs; Search Console API enabled
+- [ ] `ANTHROPIC_API_KEY` (optional), `AHREFS_API_KEY` (optional; confirm the Ahrefs licence allows showing metrics)
+- [ ] Build command `prisma migrate deploy && npm run build`
+- [ ] Terms of Service and Privacy Policy reviewed by a lawyer and the draft banner removed
+- [ ] Custom domain, then update `APP_URL` and the OAuth redirect URIs
 
 ## Deploy (Vercel + Neon)
 1. Create a Neon project. Copy the **pooled** URL to `DATABASE_URL` and the **direct** URL to `DIRECT_URL`.

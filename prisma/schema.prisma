@@ -18,6 +18,12 @@ datasource db {
 // Identity (Auth.js tables + our own fields)
 // ---------------------------------------------------------------------------
 
+enum EmailMode {
+  INSTANT
+  DIGEST // bundled into one daily email
+  OFF
+}
+
 enum PlatformRole {
   USER
   ADMIN
@@ -36,7 +42,17 @@ model User {
   // TOTP 2FA. The secret is stored encrypted (AES-256-GCM, see lib/crypto).
   twoFactorSecret  String?
   twoFactorEnabled Boolean      @default(false)
+  // Last accepted TOTP time step, so a code can\'t be replayed.
+  lastTotpStep     Int?
   lastWorkspaceId  String?
+  // Bumped on password change/reset and 2FA changes: older sessions stop working.
+  sessionVersion   Int          @default(0)
+  termsAcceptedAt  DateTime?
+  // Email preferences. Security and urgent link/dispute emails are always instant.
+  emailDeals       EmailMode    @default(INSTANT)
+  emailMessages    EmailMode    @default(INSTANT)
+  emailSites       EmailMode    @default(INSTANT)
+  monthlyReport    Boolean      @default(true)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
@@ -577,6 +593,8 @@ model CreditEntry {
   amount      Int // positive = in, negative = out
   reason      CreditReason
   dealId      String?
+  // Set on escrow releases/refunds/penalties so per-link refunds are idempotent.
+  legId       String?
   note        String?
   createdById String?
   createdAt   DateTime     @default(now())
@@ -587,6 +605,7 @@ model CreditEntry {
   @@index([workspaceId, bucket])
   @@index([txId])
   @@index([dealId])
+  @@index([legId, reason])
 }
 
 // Scheduled staged releases of escrowed credits (40% live, 20% at 3/6/12 months).
@@ -683,15 +702,16 @@ model PlatformSettings {
 }
 
 model Notification {
-  id        String    @id @default(cuid())
-  userId    String
-  kind      String
-  title     String
-  body      String
-  url       String?
-  emailedAt DateTime?
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
+  id         String    @id @default(cuid())
+  userId     String
+  kind       String
+  title      String
+  body       String
+  url        String?
+  emailedAt  DateTime?
+  emailState String    @default("sent") // sent / digest (waiting) / digested / off
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -711,6 +731,26 @@ model AuditLog {
 
   @@index([workspaceId, createdAt])
   @@index([action])
+}
+
+// Login / signup / reset attempts for rate limiting (Postgres, no extra vendor).
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  key       String // e.g. "login:email:a@b.com", "login:ip:1.2.3.4"
+  success   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
+}
+
+// Idempotency for periodic jobs (monthly reports, daily digests).
+model JobRun {
+  id        String   @id @default(cuid())
+  kind      String
+  period    String // e.g. "2026-10" or "2026-10-06"
+  createdAt DateTime @default(now())
+
+  @@unique([kind, period])
 }
 
 // One row per Claude API call, for monthly limits and cost tracking.

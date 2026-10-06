@@ -1,9 +1,11 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { lockWorkspaces, transferCredits } from "@/lib/ledger";
+import { escrowHeld } from "@/server/deals";
 import { adjustReputation, REPUTATION } from "@/lib/reputation";
 import { checkLeg, dueLegIds } from "@/server/linkcheck";
-import { notifyWorkspace } from "@/server/notify";
+import { notifyWorkspace, sendDigests } from "@/server/notify";
+import { runMonthlyReports } from "@/server/reports";
 
 // Overdue placements: tell both sides once, and dock the giver's reputation.
 export async function flagOverdue() {
@@ -58,6 +60,9 @@ export async function releaseDueEscrow() {
     if (!leg || leg.status !== "VERIFIED" || leg.deal.status === "DISPUTED") continue;
     await db.$transaction(async (tx) => {
       await lockWorkspaces(tx, [leg.giverWorkspaceId, leg.receiverWorkspaceId]);
+      const fresh = await tx.dealLeg.findUniqueOrThrow({ where: { id: leg.id }, include: { deal: true } });
+      if (fresh.status !== "VERIFIED" || fresh.deal.status === "DISPUTED") return;
+      if ((await escrowHeld(tx, fresh)) < r.amount) return; // nothing left to pay out
       const { count } = await tx.escrowRelease.updateMany({ where: { id: r.id, releasedAt: null, cancelledAt: null }, data: { releasedAt: new Date() } });
       if (!count) return;
       await transferCredits(tx, {
@@ -66,6 +71,7 @@ export async function releaseDueEscrow() {
         amount: r.amount,
         reason: "ESCROW_RELEASE",
         dealId: leg.dealId,
+        legId: leg.id,
         note: "Scheduled release",
       });
       released++;
@@ -97,5 +103,9 @@ export async function runDaily() {
   const checks = await runLinkChecks();
   const released = await releaseDueEscrow();
   const completed = await completeDeals();
-  return { overdue, checks, released, completed };
+  const digests = await sendDigests();
+  const reports = await runMonthlyReports();
+  // Rate-limit records only matter for minutes; keep a day for investigation.
+  const pruned = (await db.loginAttempt.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 86_400_000) } } })).count;
+  return { overdue, checks, released, completed, digests, reports, pruned };
 }

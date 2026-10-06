@@ -23,6 +23,22 @@ export default async function OnboardingPage() {
           <Field label="Workspace name">
             <Input name="name" placeholder="Acme Marketing" required minLength={2} maxLength={60} />
           </Field>
+          {!user.termsAcceptedAt && (
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" name="terms" required className="mt-1" />
+              <span>
+                I agree to the{" "}
+                <a href="/terms" target="_blank" className="text-accent">
+                  Terms of Service
+                </a>{" "}
+                and{" "}
+                <a href="/privacy" target="_blank" className="text-accent">
+                  Privacy Policy
+                </a>
+                .
+              </span>
+            </label>
+          )}
         </ActionForm>
       </div>
     </main>

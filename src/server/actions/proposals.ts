@@ -156,7 +156,9 @@ export async function closeProposalAction(form: FormData) {
   if (proposal.status !== "OPEN") return;
   // The side whose turn it is declines; the side waiting can withdraw.
   const status = proposal.awaitingWorkspaceId === workspace.id ? "DECLINED" : "WITHDRAWN";
-  await db.proposal.update({ where: { id: proposal.id }, data: { status } });
+  // Conditional so a close racing an accept can't overwrite ACCEPTED.
+  const { count } = await db.proposal.updateMany({ where: { id: proposal.id, status: "OPEN" }, data: { status } });
+  if (!count) return;
   await db.auditLog.create({ data: { actorId: user.id, workspaceId: workspace.id, action: `proposal.${status.toLowerCase()}`, target: proposal.id } });
   await notifyWorkspace(other, { kind: `proposal.${status.toLowerCase()}`, title: `${workspace.name} ${status === "DECLINED" ? "declined" : "withdrew"} a proposal`, body: "No deal was created.", path: proposalPath(proposal.id) }, { everyone: true });
   revalidatePath(proposalPath(proposal.id));
@@ -169,6 +171,7 @@ export async function sendMessageAction(_: FormState, form: FormData): Promise<F
   if (!body.success) return { error: body.error.issues[0].message };
   const dealId = form.get("dealId") ? String(form.get("dealId")) : null;
   const proposalId = form.get("proposalId") ? String(form.get("proposalId")) : null;
+  if (Boolean(dealId) === Boolean(proposalId)) return { error: "Nothing to reply to." }; // exactly one thread
 
   let other: string | undefined;
   let path: string;

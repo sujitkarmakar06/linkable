@@ -7,11 +7,11 @@ type Side = { workspaceId: string | null; bucket: CreditBucket };
 // Moves credits between two ledger accounts as one balanced transaction.
 export async function transferCredits(
   tx: Prisma.TransactionClient,
-  args: { from: Side; to: Side; amount: number; reason: CreditReason; dealId?: string; note?: string; createdById?: string },
+  args: { from: Side; to: Side; amount: number; reason: CreditReason; dealId?: string; legId?: string; note?: string; createdById?: string },
 ) {
   if (!Number.isInteger(args.amount) || args.amount <= 0) throw new Error("Credit amount must be a positive integer");
   const txId = randomUUID();
-  const common = { txId, reason: args.reason, dealId: args.dealId, note: args.note, createdById: args.createdById };
+  const common = { txId, reason: args.reason, dealId: args.dealId, legId: args.legId, note: args.note, createdById: args.createdById };
   await tx.creditEntry.createMany({
     data: [
       { ...common, workspaceId: args.from.workspaceId, bucket: args.from.bucket, amount: -args.amount },

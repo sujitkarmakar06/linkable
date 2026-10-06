@@ -12,7 +12,7 @@ import { FootprintNotes } from "@/components/footprint-notes";
 import { Thread } from "@/components/thread";
 import { PlacementSuggester } from "@/components/ai-widgets";
 import { GuestPostEditor, GuestPostReview } from "@/components/guest-post";
-import { countWords } from "@/lib/guestpost";
+import { countWords, safeMarkdownSource } from "@/lib/guestpost";
 import { getSettings } from "@/lib/settings";
 import { aiEnabled, aiUsageThisMonth } from "@/server/ai";
 import { marked } from "marked";
@@ -147,7 +147,7 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
 ${leg.guestPost.body}`} className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-xs" />
                           </Field>
                           <Field label="HTML">
-                            <textarea readOnly rows={8} defaultValue={marked.parse(leg.guestPost.body, { async: false })} className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-xs" />
+                            <textarea readOnly rows={8} defaultValue={marked.parse(safeMarkdownSource(leg.guestPost.body), { async: false })} className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-xs" />
                           </Field>
                         </div>
                       ) : (

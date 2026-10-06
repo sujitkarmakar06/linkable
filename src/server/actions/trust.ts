@@ -54,20 +54,24 @@ export async function resolveDisputeAction(_: FormState, form: FormData): Promis
   if (outcome !== "dismiss" && leg && ["REMOVED", "CANCELLED"].includes(leg.status)) return { error: "That link is already closed." };
   const settings = await getSettings();
 
-  await db.$transaction(async (tx) => {
+  const done = await db.$transaction(async (tx) => {
     await lockWorkspaces(tx, [dispute.openedByWorkspaceId, dispute.againstWorkspaceId]);
+    // Claim the dispute first: a second submit finds it no longer OPEN and does nothing.
+    const claimed = await tx.dispute.updateMany({ where: { id: dispute.id, status: "OPEN" }, data: { status: outcome === "dismiss" ? "REJECTED" : "RESOLVED", resolution: note, resolvedById: admin.id, resolvedAt: new Date() } });
+    if (claimed.count !== 1) return false;
     if (outcome === "refund_leg" && leg) {
-      await tx.dealLeg.update({ where: { id: leg.id }, data: { status: "REMOVED", removedAt: new Date() } });
+      await tx.dealLeg.updateMany({ where: { id: leg.id, status: { notIn: ["REMOVED", "CANCELLED"] } }, data: { status: "REMOVED", removedAt: new Date() } });
       await refundLeg(tx, leg, admin.id);
     }
     if (outcome === "refund_and_penalize" && leg)
       await removeLeg(tx, leg, settings.removalPenaltyCredits, { reputationDelta: REPUTATION.disputeLost, reason: "dispute lost", actorId: admin.id });
-    await tx.dispute.update({ where: { id: dispute.id }, data: { status: outcome === "dismiss" ? "REJECTED" : "RESOLVED", resolution: note, resolvedById: admin.id, resolvedAt: new Date() } });
     // Back to where it was before the dispute, then let the legs decide.
     await tx.deal.update({ where: { id: dispute.dealId }, data: { status: dispute.previousDealStatus ?? "IN_PROGRESS" } });
     await recomputeDealStatus(tx, dispute.dealId);
     await tx.auditLog.create({ data: { actorId: admin.id, action: "admin.dispute_resolved", target: dispute.id, meta: { outcome, legId: leg?.id ?? null } } });
+    return true;
   });
+  if (!done) return { error: "This dispute was already resolved." };
   for (const ws of [dispute.openedByWorkspaceId, dispute.againstWorkspaceId])
     await notifyWorkspace(ws, { kind: "dispute.resolved", title: "Dispute resolved", body: note, path: `/app/deals/${dispute.dealId}` }, { everyone: true });
   revalidatePath("/admin/disputes");

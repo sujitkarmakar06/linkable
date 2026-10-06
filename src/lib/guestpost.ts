@@ -36,6 +36,11 @@ export type PostCheck = { title: string; body: string; targetUrl: string; anchor
 
 export function validateGuestPost(p: PostCheck): string[] {
   const errors: string[] = [];
+  // The host pastes this into their CMS, so no raw HTML (scripts, event handlers)
+  // and only http(s) links - Markdown only.
+  if (/<\/?[a-z!][^>]*>/i.test(p.body)) errors.push("Raw HTML isn't allowed. Use Markdown formatting only.");
+  const badLink = extractLinks(p.body).find((l) => !/^https?:\/\//i.test(l.url));
+  if (badLink) errors.push(`Links must start with http:// or https:// ("${badLink.url.slice(0, 40)}").`);
   const title = p.title.trim();
   if (title.length < 10 || title.length > 150) errors.push("The title should be 10-150 characters.");
   const words = countWords(p.body);
@@ -61,4 +66,10 @@ export const contentHash = (body: string) => createHash("sha256").update(body.re
 export function splitTitle(markdown: string): { title: string; body: string } {
   const m = markdown.trimStart().match(/^#\s+(.+)\n+([\s\S]*)$/);
   return m ? { title: m[1].trim(), body: m[2].trim() } : { title: "", body: markdown.trim() };
+}
+
+// HTML for the host to paste: raw HTML in the source is escaped, never passed
+// through (defence in depth; validation already rejects it).
+export function safeMarkdownSource(markdown: string) {
+  return markdown.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 }

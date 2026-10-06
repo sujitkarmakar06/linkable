@@ -48,3 +48,13 @@ describe("helpers", () => {
     expect(parseSitemap("<sitemapindex><sitemap><loc>https://a.com/s1.xml</loc></sitemap></sitemapindex>").sitemaps).toEqual(["https://a.com/s1.xml"]);
   });
 });
+
+describe("guest-post safety", () => {
+  const words900 = Array.from({ length: 900 }, (_, i) => `w${i}`).join(" ");
+  const ok = { title: "How to price a SaaS product", targetUrl: "https://a-money.com/pricing", anchor: "pricing tool", receiverDomain: "a-money.com", minWords: 800 };
+  it("rejects raw HTML and non-http links", () => {
+    const link = "[pricing tool](https://a-money.com/pricing)";
+    expect(validateGuestPost({ ...ok, body: `${words900} ${link} <img src=x onerror=alert(1)>` }).join(" ")).toMatch(/Raw HTML/);
+    expect(validateGuestPost({ ...ok, body: `${words900} ${link} [click](javascript:alert(1))` }).join(" ")).toMatch(/http:\/\/ or https:\/\//);
+  });
+});

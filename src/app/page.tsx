@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LegalLinks } from "@/components/legal";
 import { Logo } from "@/components/logo";
 import { getSessionUser } from "@/server/session";
 import { getSettings } from "@/lib/settings";
@@ -55,7 +56,10 @@ export default async function Home() {
           ))}
         </section>
       </main>
-      <footer className="border-t border-border py-6 text-center text-xs text-muted">Linkable</footer>
+      <footer className="flex flex-wrap items-center justify-center gap-4 border-t border-border py-6 text-xs text-muted">
+        <span>Linkable</span>
+        <LegalLinks />
+      </footer>
     </div>
   );
 }

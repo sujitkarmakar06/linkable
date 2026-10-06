@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# e2e
+e2e/.outbox.jsonl
+/test-results/
+/playwright-report/

@@ -11,6 +11,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
   const current = await getCurrentMembership();
   const memberships = await db.membership.findMany({ where: { userId: user.id }, include: { workspace: true }, orderBy: { createdAt: "asc" } });
   const pending = current ? await db.proposal.count({ where: { awaitingWorkspaceId: current.workspaceId, status: "OPEN" } }) : 0;
+  const unread = await db.notification.count({ where: { userId: user.id, readAt: null } });
   const matches = current
     ? await db.match.count({ where: { workspaceId: current.workspaceId, status: "OFFERED", expiresAt: { gt: new Date() }, linkRequest: { status: "OPEN" } } })
     : 0;
@@ -40,6 +41,9 @@ export async function AppShell({ children }: { children: ReactNode }) {
           <NavLink href="/app" exact>
             Dashboard
           </NavLink>
+          <NavLink href="/app/notifications">
+            Notifications {unread > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-xs text-accent-fg">{unread}</span>}
+          </NavLink>
           <NavLink href="/app/marketplace">Marketplace</NavLink>
           <NavLink href="/app/sites">My sites</NavLink>
           <NavLink href="/app/matches">
@@ -58,6 +62,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
               <NavLink href="/admin" exact>
                 Admin
               </NavLink>
+              <NavLink href="/admin/analytics">Analytics</NavLink>
               <NavLink href="/admin/sites">Site reviews</NavLink>
               <NavLink href="/admin/disputes">Disputes</NavLink>
             </>

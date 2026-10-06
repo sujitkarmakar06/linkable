@@ -51,7 +51,9 @@ export async function safeGet(url: string, { maxRedirects = 5, timeoutMs = 15_00
       return { ok: res.ok, status: res.status, url: current, redirects, body: await res.text(), contentType: res.headers.get("content-type") ?? "", xRobotsTag: res.headers.get("x-robots-tag") };
     }
     if (!["http:", "https:"].includes(parsed.protocol)) throw new Error(`Unsupported URL scheme: ${parsed.protocol}`);
-    if (isIP(parsed.hostname.replace(/^\[|\]$/g, "")) && isPrivateIp(parsed.hostname.replace(/^\[|\]$/g, ""))) throw new Error("Refusing private address");
+    // IP-literal hosts skip the DNS lookup hook below, so check them here.
+    const literal = parsed.hostname.replace(/^\[|\]$/g, "");
+    if (isIP(literal) && isPrivateIp(literal)) throw new Error("Refusing private address");
     const res = await fetch(current, {
       dispatcher: agent,
       redirect: "manual",
