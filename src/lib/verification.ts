@@ -37,12 +37,23 @@ export async function verifyDnsTxt(domain: string, token: string, resolveTxt: (d
   }
 }
 
-type PageGetter = (domain: string, path: string) => Promise<{ ok: boolean; status: number; body: string }>;
+type PageGetter = (domain: string, path: string) => Promise<{ ok: boolean; status: number; body: string; url?: string }>;
+
+// A redirect to another host proves nothing about this domain.
+function sameSite(url: string | undefined, domain: string) {
+  if (!url) return true;
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "") === domain;
+  } catch {
+    return false;
+  }
+}
 
 export async function verifyMetaTag(domain: string, token: string, getPage: PageGetter): Promise<VerifyOutcome> {
   try {
     const page = await getPage(domain, "/");
     if (!page.ok) return { ok: false, reason: `Your homepage returned HTTP ${page.status}.` };
+    if (!sameSite(page.url, domain)) return { ok: false, reason: `Your homepage redirects to another site (${page.url}). Put the tag on ${domain} itself.` };
     return htmlHasMetaToken(page.body, token) ? { ok: true } : { ok: false, reason: "The meta tag wasn't found in your homepage's HTML. If you use a cache or CDN, clear it and try again." };
   } catch (err) {
     return { ok: false, reason: `Couldn't load your homepage: ${(err as Error).message}` };
@@ -54,6 +65,7 @@ export async function verifyHtmlFile(domain: string, token: string, getPage: Pag
   try {
     const page = await getPage(domain, path);
     if (!page.ok) return { ok: false, reason: `${path} returned HTTP ${page.status}. Upload the file to your site's root folder.` };
+    if (!sameSite(page.url, domain)) return { ok: false, reason: `${path} redirects to another site (${page.url}). The file must be served by ${domain}.` };
     return fileHasToken(page.body, token) ? { ok: true } : { ok: false, reason: `${path} exists but doesn't contain the verification text.` };
   } catch (err) {
     return { ok: false, reason: `Couldn't load ${path}: ${(err as Error).message}` };

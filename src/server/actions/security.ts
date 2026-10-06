@@ -8,7 +8,7 @@ import { decrypt, encrypt } from "@/lib/crypto";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { generateRecoveryCodes, generateSecret, hashRecoveryCode, totpUri, verifySecondFactor, verifyTotp } from "@/lib/totp";
 import { requireUser } from "@/server/session";
-import { LIMITS, limited, recordAttempt, tooMany } from "@/server/ratelimit";
+import { LIMITS, reserve, succeeded, tooMany } from "@/server/ratelimit";
 import type { FormState } from "./types";
 
 // Step 1: create a pending secret and return the QR code. 2FA is not on
@@ -47,13 +47,10 @@ export async function disableTwoFactorAction(_: FormState, form: FormData): Prom
   const user = await requireUser();
   if (!user.twoFactorEnabled) return { error: "Two-factor authentication is already off." };
   const code = String(form.get("code") ?? "");
-  const key = `2fa:user:${user.id}`;
-  const wait = await limited(key, LIMITS.loginEmail, { failuresOnly: true });
-  if (wait) return { error: tooMany(wait) };
-  if (!(await verifySecondFactor(user, code, true))) {
-    await recordAttempt(key);
-    return { error: "Enter a valid code from your app or a recovery code." };
-  }
+  const slot = await reserve([{ key: `2fa:user:${user.id}`, limit: LIMITS.twoFactor, failuresOnly: true }]);
+  if (slot.wait) return { error: tooMany(slot.wait) };
+  if (!(await verifySecondFactor(user, code, true))) return { error: "Enter a valid code from your app or a recovery code." };
+  await succeeded(slot.ids);
   await db.$transaction([
     db.recoveryCode.deleteMany({ where: { userId: user.id } }),
     db.user.update({ where: { id: user.id }, data: { twoFactorEnabled: false, twoFactorSecret: null, lastTotpStep: null, sessionVersion: { increment: 1 } } }),

@@ -10,7 +10,7 @@ import { hashPassword, verifyPassword } from "@/lib/password";
 import { PLATFORM_ADMIN_EMAILS } from "@/lib/settings";
 import { consumeAuthToken, issueAuthToken } from "@/lib/tokens";
 import { verifySecondFactor } from "@/lib/totp";
-import { clearFailures, LIMITS, limited, recordAttempt, requestIp, tooMany } from "@/server/ratelimit";
+import { clearFailures, LIMITS, loginChecks, requestIp, reserve, succeeded, tooMany } from "@/server/ratelimit";
 import type { FormState } from "./types";
 
 // bcrypt hash of a random string, compared when no account matches.
@@ -32,10 +32,8 @@ export async function signupAction(_: FormState, form: FormData): Promise<FormSt
     .safeParse({ ...Object.fromEntries(form), terms: form.get("terms") === "on" });
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const { name, email: addr } = parsed.data;
-  const ipKey = `signup:ip:${await requestIp()}`;
-  const wait = await limited(ipKey, LIMITS.signupIp);
+  const { wait } = await reserve([{ key: `signup:ip:${await requestIp()}`, limit: LIMITS.signupIp }]);
   if (wait) return { error: tooMany(wait) };
-  await recordAttempt(ipKey);
   if (!parsed.data.terms) return { error: "Please accept the Terms of Service and Privacy Policy." };
 
   const existing = await db.user.findUnique({ where: { email: addr } });
@@ -64,14 +62,11 @@ export async function loginAction(_: FormState, form: FormData): Promise<FormSta
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const { email: addr, password: pw, code } = parsed.data;
 
-  const emailKey = `login:email:${addr}`;
-  const ipKey = `login:ip:${await requestIp()}`;
-  const wait = Math.max(await limited(emailKey, LIMITS.loginEmail, { failuresOnly: true }), await limited(ipKey, LIMITS.loginIp, { failuresOnly: true }));
-  if (wait) return { error: tooMany(wait) };
-  const fail = async (state: FormState) => {
-    await Promise.all([recordAttempt(emailKey), recordAttempt(ipKey)]);
-    return state;
-  };
+  const checks = loginChecks(addr, await requestIp());
+  // Reserved before bcrypt runs; stays counted as a failure unless the login succeeds.
+  const slot = await reserve(checks);
+  if (slot.wait) return { error: tooMany(slot.wait) };
+  const fail = async (state: FormState) => state;
 
   const user = await db.user.findUnique({ where: { email: addr } });
   // Always run bcrypt so response time doesn't reveal whether the account exists.
@@ -83,10 +78,15 @@ export async function loginAction(_: FormState, form: FormData): Promise<FormSta
     return { error: "Please verify your email first. We've sent you a new link." };
   }
   if (user.twoFactorEnabled) {
-    if (!code) return { needsCode: true };
+    // Correct password, code still to come: not a failed attempt.
+    if (!code) {
+      await succeeded(slot.ids);
+      return { needsCode: true };
+    }
     if (!(await verifySecondFactor(user, code, false))) return fail({ needsCode: true, error: "That code didn't work. Try again." });
   }
-  await clearFailures(emailKey);
+  await succeeded(slot.ids);
+  await clearFailures(checks[0].key);
 
   try {
     await signIn("credentials", { email: addr, password: pw, code: code ?? "", redirectTo: "/app" });
@@ -115,10 +115,11 @@ export async function verifyEmailAction(_: FormState, form: FormData): Promise<F
 export async function forgotPasswordAction(_: FormState, form: FormData): Promise<FormState> {
   const parsed = email.safeParse(form.get("email"));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
-  const keys = [`reset:email:${parsed.data}`, `reset:ip:${await requestIp()}`] as const;
-  const wait = Math.max(await limited(keys[0], LIMITS.resetEmail), await limited(keys[1], LIMITS.resetIp));
+  const { wait } = await reserve([
+    { key: `reset:email:${parsed.data}`, limit: LIMITS.resetEmail },
+    { key: `reset:ip:${await requestIp()}`, limit: LIMITS.resetIp },
+  ]);
   if (wait) return { error: tooMany(wait) };
-  await Promise.all(keys.map((k) => recordAttempt(k)));
   const user = await db.user.findUnique({ where: { email: parsed.data } });
   if (user && !user.suspendedAt) {
     const token = await issueAuthToken(user.id, "PASSWORD_RESET");

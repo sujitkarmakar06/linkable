@@ -113,6 +113,9 @@ export default async function AdminSitesPage({ searchParams }: PageProps<"/admin
               {site.reviewNote && <p className="mt-3 text-sm">Note: {site.reviewNote}</p>}
 
               <div className="mt-5 grid gap-4 border-t border-border pt-4 lg:grid-cols-2">
+                {!site.verifiedAt ? (
+                  <p className="text-sm text-muted">Ownership not proven yet - metrics and decisions are available once the owner verifies the site.</p>
+                ) : (
                 <ActionForm action={setSiteMetricsAction} submit="Save metrics" variant="secondary" className="flex flex-col gap-3">
                   <input type="hidden" name="siteId" value={site.id} />
                     <input type="hidden" name="tab" value={status} />
@@ -125,6 +128,7 @@ export default async function AdminSitesPage({ searchParams }: PageProps<"/admin
                     </Field>
                   </div>
                 </ActionForm>
+                )}
                 <div className="flex flex-col gap-3">
                   {site.status !== "APPROVED" && site.verifiedAt && (
                     <ActionForm action={approveSiteAction} submit="Approve" className="flex flex-col gap-3">

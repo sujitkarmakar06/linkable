@@ -22,10 +22,13 @@ export async function flagOverdue() {
     take: 500,
   });
   for (const leg of legs) {
-    await db.$transaction(async (tx) => {
-      await tx.dealLeg.update({ where: { id: leg.id }, data: { overdueNotifiedAt: new Date() } });
-      await adjustReputation(tx, leg.giverWorkspaceId, REPUTATION.placementOverdue, "link placement overdue");
+    // Conditional so overlapping runs (cron + admin button) flag it once.
+    const flagged = await db.$transaction(async (tx) => {
+      const { count } = await tx.dealLeg.updateMany({ where: { id: leg.id, overdueNotifiedAt: null }, data: { overdueNotifiedAt: new Date() } });
+      if (count === 1) await adjustReputation(tx, leg.giverWorkspaceId, REPUTATION.placementOverdue, "link placement overdue");
+      return count === 1;
     });
+    if (!flagged) continue;
     for (const ws of [leg.giverWorkspaceId, leg.receiverWorkspaceId])
       await notifyWorkspace(
         ws,
@@ -57,11 +60,12 @@ export async function releaseDueEscrow() {
   let released = 0;
   for (const r of due) {
     const leg = await db.dealLeg.findUnique({ where: { id: r.legId }, include: { deal: true } });
-    if (!leg || leg.status !== "VERIFIED" || leg.deal.status === "DISPUTED") continue;
+    if (!leg || leg.status !== "VERIFIED" || leg.consecutiveFailures > 0 || leg.deal.status === "DISPUTED") continue;
     await db.$transaction(async (tx) => {
       await lockWorkspaces(tx, [leg.giverWorkspaceId, leg.receiverWorkspaceId]);
       const fresh = await tx.dealLeg.findUniqueOrThrow({ where: { id: leg.id }, include: { deal: true } });
-      if (fresh.status !== "VERIFIED" || fresh.deal.status === "DISPUTED") return;
+      // Hold payouts while the latest check failed, even before the leg is FAILING.
+      if (fresh.status !== "VERIFIED" || fresh.consecutiveFailures > 0 || fresh.deal.status === "DISPUTED") return;
       if ((await escrowHeld(tx, fresh)) < r.amount) return; // nothing left to pay out
       const { count } = await tx.escrowRelease.updateMany({ where: { id: r.id, releasedAt: null, cancelledAt: null }, data: { releasedAt: new Date() } });
       if (!count) return;
@@ -89,11 +93,14 @@ export async function completeDeals() {
     if (!active.every((l) => l.status === "VERIFIED")) continue;
     const pending = await db.escrowRelease.count({ where: { dealId: d.id, releasedAt: null, cancelledAt: null } });
     if (pending) continue;
-    await db.$transaction(async (tx) => {
-      await tx.deal.update({ where: { id: d.id }, data: { status: "COMPLETED" } });
+    const done = await db.$transaction(async (tx) => {
+      // Only a deal that is still LIVE (not disputed meanwhile, not completed by another run).
+      const { count } = await tx.deal.updateMany({ where: { id: d.id, status: "LIVE" }, data: { status: "COMPLETED" } });
+      if (count !== 1) return false;
       for (const ws of new Set(active.map((l) => l.giverWorkspaceId))) await adjustReputation(tx, ws, REPUTATION.dealCompleted, "deal completed");
+      return true;
     });
-    completed++;
+    if (done) completed++;
   }
   return completed;
 }

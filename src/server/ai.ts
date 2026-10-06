@@ -33,8 +33,11 @@ async function assertQuota(workspaceId: string, kind: Kind) {
   if (used >= limit) throw new AiError(`You've used all ${limit} AI ${kind === "draft" ? "drafts" : "suggestions"} for this month. They reset on the 1st.`);
 }
 
-async function record(workspaceId: string, userId: string, kind: Kind, usage: { input_tokens?: number; output_tokens?: number } | null, extra: { legId?: string; outputHash?: string } = {}) {
-  await db.aiUsage.create({ data: { workspaceId, userId, kind, model: fakeMode() ? "fake" : AI_MODEL, inputTokens: usage?.input_tokens ?? 0, outputTokens: usage?.output_tokens ?? 0, ...extra } });
+// `model` is the model that actually answered (a refusal fallback bills at its own rates).
+async function record(workspaceId: string, userId: string, kind: Kind, usage: { input_tokens?: number; output_tokens?: number } | null, extra: { legId?: string; outputHash?: string; model?: string } = {}) {
+  const { model, ...rest } = extra;
+  extra = rest;
+  await db.aiUsage.create({ data: { workspaceId, userId, kind, model: fakeMode() ? "fake" : (model ?? AI_MODEL), inputTokens: usage?.input_tokens ?? 0, outputTokens: usage?.output_tokens ?? 0, ...extra } });
 }
 
 function checkStop(msg: Anthropic.Beta.BetaMessage) {
@@ -51,7 +54,7 @@ function toApiError(err: unknown): never {
 }
 
 // One structured call: JSON-schema output, validated with zod afterwards.
-async function structured<T extends z.ZodType>(schema: T, system: string, user: string): Promise<{ data: z.infer<T>; usage: Anthropic.Beta.BetaUsage }> {
+async function structured<T extends z.ZodType>(schema: T, system: string, user: string): Promise<{ data: z.infer<T>; usage: Anthropic.Beta.BetaUsage; model: string }> {
   const jsonSchema = z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>;
   delete jsonSchema.$schema;
   try {
@@ -68,7 +71,7 @@ async function structured<T extends z.ZodType>(schema: T, system: string, user: 
     const text = msg.content.find((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")?.text ?? "";
     const parsed = schema.safeParse(JSON.parse(text));
     if (!parsed.success) throw new AiError("The AI returned an unexpected answer. Please try again.");
-    return { data: parsed.data, usage: msg.usage };
+    return { data: parsed.data, usage: msg.usage, model: msg.model };
   } catch (err) {
     if (err instanceof SyntaxError) throw new AiError("The AI returned an unexpected answer. Please try again.");
     toApiError(err);
@@ -110,13 +113,13 @@ export async function suggestAnchors(a: { workspaceId: string; userId: string; s
     await record(a.workspaceId, a.userId, "anchors", null);
   } else {
     const page = await describeUrl(a.targetUrl);
-    const { data, usage } = await structured(
+    const { data, usage, model } = await structured(
       AnchorSchema,
       ANCHOR_SYSTEM,
       `Target page: ${a.targetUrl}\nSite: ${site.domain} (niche: ${site.niche})\n\nAnchors already pointing to this site (text: count):\n${used.map((u) => `${u.anchor}: ${u._count}`).join("\n") || "(none yet)"}\n\n<page>\n${page}\n</page>\n\nSuggest 8 anchors with a healthy mix of types.`,
     );
     anchors = data.anchors;
-    await record(a.workspaceId, a.userId, "anchors", usage);
+    await record(a.workspaceId, a.userId, "anchors", usage, { model });
   }
   const seen = new Set<string>();
   return anchors
@@ -177,13 +180,13 @@ export async function suggestPlacement(a: { workspaceId: string; userId: string;
     await record(a.workspaceId, a.userId, "placement", null, { legId: leg.id });
   } else {
     const target = await describeUrl(leg.targetUrl);
-    const { data, usage } = await structured(
+    const { data, usage, model } = await structured(
       PlacementSchema,
       PLACEMENT_SYSTEM,
       `Host site: ${leg.fromSite.domain} (niche: ${leg.fromSite.niche})\nLink to place: anchor "${leg.anchor}" -> ${leg.targetUrl}\n\n<target_page>\n${target}\n</target_page>\n\n<host_urls>\n${candidates.join("\n")}\n</host_urls>\n\nPick up to 5 pages.`,
     );
     pages = data.pages;
-    await record(a.workspaceId, a.userId, "placement", usage, { legId: leg.id });
+    await record(a.workspaceId, a.userId, "placement", usage, { legId: leg.id, model });
   }
   const allowed = new Set(candidates);
   return pages.filter((p) => allowed.has(p.url)).slice(0, 5); // never trust a URL the model invented
@@ -201,6 +204,7 @@ export async function draftGuestPost(a: { workspaceId: string; userId: string; l
 
   let markdown: string;
   let usage: Anthropic.Beta.BetaUsage | null = null;
+  let answeredBy: string | undefined;
   if (fakeMode()) {
     const filler = Array.from({ length: words }, (_, i) => `insight${i % 50}`).join(" ");
     markdown = `# ${a.topic || "A practical guide"} for ${leg.fromSite.niche} teams\n\n${filler}\n\n## Tools that help\n\nA good [${leg.anchor}](${leg.targetUrl}) saves hours. [VERIFY: source for time saved]`;
@@ -229,12 +233,13 @@ export async function draftGuestPost(a: { workspaceId: string; userId: string; l
         .map((b) => b.text)
         .join("");
       usage = msg.usage;
+      answeredBy = msg.model;
     } catch (err) {
       toApiError(err);
     }
   }
   const draft = splitTitle(markdown);
-  await record(a.workspaceId, a.userId, "draft", usage, { legId: leg.id, outputHash: contentHash(draft.body) });
+  await record(a.workspaceId, a.userId, "draft", usage, { legId: leg.id, outputHash: contentHash(draft.body), model: answeredBy });
   return draft;
 }
 

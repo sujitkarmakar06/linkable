@@ -32,6 +32,8 @@ type CreateDeal = {
 // the terms and footprint against current data, lock the payers' credits in
 // escrow and create the deal.
 export async function createDealFromTerms(tx: Prisma.TransactionClient, d: CreateDeal): Promise<string> {
+  const suspended = await tx.workspace.count({ where: { id: { in: d.parties }, suspendedAt: { not: null } } });
+  if (suspended) throw new DealError("One of the workspaces is suspended and can't start new deals.");
   const sites = await loadTermsSites(d.terms, tx);
   const errors = validateTerms(d.kind, d.terms, sites, d.parties);
   if (errors.length) throw new DealError(errors[0]);
@@ -181,7 +183,9 @@ export async function recomputeDealStatus(tx: Prisma.TransactionClient, dealId: 
   if (status !== deal.status) {
     const settings = await getSettings();
     let guaranteeEnds = deal.guaranteeEnds;
-    if (status === "LIVE") {
+    // The guarantee starts the first time the deal goes live. A link that fails
+    // and is restored must not restart it.
+    if (status === "LIVE" && !guaranteeEnds) {
       guaranteeEnds = new Date();
       guaranteeEnds.setUTCMonth(guaranteeEnds.getUTCMonth() + settings.guaranteeMonths);
     }

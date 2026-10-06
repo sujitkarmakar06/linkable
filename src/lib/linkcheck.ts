@@ -38,6 +38,10 @@ export function analysePage(html: string, opts: { pageUrl: string; targetUrl: st
   // Ignore links inside comments, scripts and templates.
   const body = html.replace(/<!--[\s\S]*?-->|<script[\s\S]*?<\/script>|<noscript[\s\S]*?<\/noscript>|<template[\s\S]*?<\/template>/gi, " ");
   const want = opts.anchor.trim().toLowerCase();
+  // Several links to the target (e.g. an author-bio nofollow plus the agreed
+  // link): judge the best one - exact agreed anchor first, then dofollow, then first seen.
+  const isFollow = (rel: string | null) => !(rel ?? "").toLowerCase().split(/\s+/).some((t) => ["nofollow", "sponsored", "ugc"].includes(t));
+  const rank = (c: { text: string; rel: string | null }) => (c.text.toLowerCase() === want ? 2 : 0) + (isFollow(c.rel) ? 1 : 0);
   let best: { text: string; rel: string | null } | null = null;
   for (const m of body.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)) {
     const href = attr(m[1], "href");
@@ -49,11 +53,9 @@ export function analysePage(html: string, opts: { pageUrl: string; targetUrl: st
       continue;
     }
     if (!samePage(resolved, opts.targetUrl)) continue;
-    const text = textOf(m[2]);
-    const candidate = { text, rel: attr(m[1], "rel") };
-    // Prefer the link with the agreed anchor if there are several.
-    if (!best || text.toLowerCase() === want) best = candidate;
-    if (text.toLowerCase() === want) break;
+    const candidate = { text: textOf(m[2]), rel: attr(m[1], "rel") };
+    if (!best || rank(candidate) > rank(best)) best = candidate;
+    if (rank(best) === 3) break;
   }
 
   const metaRobots = [...body.matchAll(/<meta\b[^>]*>/gi)]

@@ -1,15 +1,19 @@
 import { createHash } from "node:crypto";
+import { marked, type Tokens } from "marked";
 import { samePage } from "./linkcheck";
 
 // Guest-post rules, kept pure so they're easy to test. Bodies are Markdown.
 
 export type PostLink = { text: string; url: string };
 
+// Every link exactly as the Markdown renderer will see it - inline, reference-style
+// ([text][1] + "[1]: url") and bare autolinked URLs - plus raw HTML anchors.
+// Using the renderer's own lexer means validation and rendering can't disagree.
 export function extractLinks(markdown: string): PostLink[] {
   const links: PostLink[] = [];
-  // [text](url "optional title")
-  for (const m of markdown.matchAll(/\[([^\]]+)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g)) links.push({ text: m[1].trim(), url: m[2] });
-  // raw HTML anchors, in case the writer pasted some
+  marked.walkTokens(marked.lexer(markdown), (t) => {
+    if (t.type === "link") links.push({ text: (t as Tokens.Link).text.replace(/<[^>]+>/g, "").trim(), url: (t as Tokens.Link).href });
+  });
   for (const m of markdown.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) links.push({ text: m[2].replace(/<[^>]+>/g, "").trim(), url: m[1] });
   return links;
 }

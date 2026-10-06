@@ -58,20 +58,22 @@ export async function checkLeg(legId: string): Promise<CheckVerdict | null> {
     settings,
   );
 
-  await db.$transaction(async (tx) => {
+  const applied = await db.$transaction(async (tx) => {
     await lockWorkspaces(tx, [leg.giverWorkspaceId, leg.receiverWorkspaceId]);
     const fresh = await tx.dealLeg.findUniqueOrThrow({ where: { id: leg.id }, include: { deal: true } });
-    // Changed meanwhile (manual confirm, cancel, dispute): leave it alone.
-    if (fresh.status !== leg.status || ["DISPUTED", "CANCELLED", "COMPLETED"].includes(fresh.deal.status)) return;
+    // Changed meanwhile (manual confirm, cancel, dispute, an overlapping check): leave it alone.
+    if (fresh.status !== leg.status || fresh.consecutiveFailures !== leg.consecutiveFailures || ["DISPUTED", "CANCELLED", "COMPLETED"].includes(fresh.deal.status)) return false;
     await tx.dealLeg.update({ where: { id: leg.id }, data: { lastCheckedAt: now, consecutiveFailures: next.consecutiveFailures, failingSince: next.failingSince } });
     if (next.event === "verified") await markVerified(tx, fresh, null);
     else if (next.event === "failing" || next.event === "restored") {
       await tx.dealLeg.update({ where: { id: leg.id }, data: { status: next.status } });
       await recomputeDealStatus(tx, leg.dealId);
     } else if (next.event === "removed") await removeLeg(tx, fresh, settings.removalPenaltyCredits);
+    return true;
   });
 
-  await notifyEvent(leg, next.event, verdict, settings.graceDays, settings.removalPenaltyCredits);
+  // Only tell people about state changes that actually happened.
+  if (applied) await notifyEvent(leg, next.event, verdict, settings.graceDays, settings.removalPenaltyCredits);
   return verdict;
 }
 
@@ -140,6 +142,8 @@ export async function dueLegIds(limit: number): Promise<string[]> {
         { status: "PLACED" },
         { status: "FAILING", OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lte: dayAgo } }] },
         { status: "VERIFIED", OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lte: cutoff } }] },
+        // A live link that just failed once is re-checked daily, not a week later.
+        { status: "VERIFIED", consecutiveFailures: { gt: 0 }, lastCheckedAt: { lte: dayAgo } },
       ],
     },
     select: { id: true },

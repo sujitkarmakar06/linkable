@@ -70,3 +70,11 @@ describe("nextLegState", () => {
     expect(nextLegState(two as never, true, sixDays, rules)).toMatchObject({ status: "VERIFIED", event: "restored", consecutiveFailures: 0 });
   });
 });
+
+describe("review fixes", () => {
+  it("judges the agreed dofollow link over an earlier nofollow one", () => {
+    const html = `<p>Bio: <a rel="nofollow" href="https://target.com/pricing">Target</a></p><p>Body <a href="https://target.com/pricing">pricing tools</a></p>`;
+    const a = analysePage(html, { pageUrl: "https://giver.com/x", targetUrl: "https://target.com/pricing", anchor: "Pricing Tool" });
+    expect(a.dofollow).toBe(true);
+  });
+});

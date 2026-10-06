@@ -46,5 +46,7 @@ export async function requireMembership(minRole: WorkspaceRole = "VIEWER") {
   const membership = await getCurrentMembership();
   if (!membership) redirect("/onboarding");
   if (!hasRole(membership.role, minRole)) throw new Error("You don't have permission to do that in this workspace.");
+  // A suspended workspace can still be viewed (and left), but not used to trade.
+  if (membership.workspace.suspendedAt && minRole !== "VIEWER") throw new Error("This workspace is suspended. Contact support.");
   return { user, membership, workspace: membership.workspace };
 }

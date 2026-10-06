@@ -17,7 +17,7 @@ export const metadata: Metadata = { title: "Partner site" };
 export default async function PartnerSitePage({ params }: PageProps<"/app/marketplace/[siteId]">) {
   const { siteId } = await params;
   const { membership, workspace } = await requireMembership();
-  const site = await db.site.findFirst({ where: { id: siteId, status: "APPROVED", workspaceId: { not: workspace.id } }, include: { workspace: true } });
+  const site = await db.site.findFirst({ where: { id: siteId, status: "APPROVED", workspaceId: { not: workspace.id }, workspace: { suspendedAt: null } }, include: { workspace: true } });
   if (!site) notFound();
   const [mine, theirs, settings, rating] = await Promise.all([
     db.site.findMany({ where: { workspaceId: workspace.id, status: "APPROVED" }, orderBy: { domain: "asc" } }),

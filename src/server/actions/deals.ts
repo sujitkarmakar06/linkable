@@ -26,7 +26,12 @@ export async function placeLegAction(_: FormState, form: FormData): Promise<Form
   if (!placeable.includes(leg.status)) return { error: leg.placementType === "GUEST_POST" && leg.status === "PENDING" ? "Approve the guest post before publishing it." : "This link can't be changed now." };
   const url = String(form.get("sourcePageUrl") ?? "").trim();
   if (!urlOnDomain(url, leg.fromSite.domain)) return { error: `The page must be on ${leg.fromSite.domain}.` };
-  await placeLeg(leg, url);
+  try {
+    await placeLeg(leg, url);
+  } catch (err) {
+    if (err instanceof DealError) return { error: err.message };
+    throw err;
+  }
   await notifyWorkspace(leg.receiverWorkspaceId, { kind: "leg.placed", title: `Your link from ${leg.fromSite.domain} is placed`, body: `It's on ${url}. Our crawler is checking it now.`, path: `/app/deals/${leg.dealId}` }, { everyone: true });
   // Check straight away; later checks run from the daily job.
   after(() => checkLeg(leg.id).catch((err) => console.error("[linkcheck]", err)));

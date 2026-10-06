@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 import { verifySecondFactor } from "@/lib/totp";
 import { PLATFORM_ADMIN_EMAILS } from "@/lib/settings";
-import { ipFrom, LIMITS, limited, recordAttempt } from "@/server/ratelimit";
+import { ipFrom, loginChecks, reserve, succeeded } from "@/server/ratelimit";
 
 declare module "next-auth" {
   interface Session {
@@ -44,16 +44,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!parsed.success) throw new InvalidLogin();
         const { email, password, code } = parsed.data;
         // Same limits as the login form, so calling this endpoint directly can't brute-force.
-        const keys = [`login:email:${email.toLowerCase()}`, `login:ip:${ipFrom(request.headers)}`];
-        if ((await limited(keys[0], LIMITS.loginEmail, { failuresOnly: true })) || (await limited(keys[1], LIMITS.loginIp, { failuresOnly: true }))) throw new InvalidLogin();
+        const slot = await reserve(loginChecks(email.toLowerCase(), ipFrom(request.headers)));
+        if (slot.wait) throw new InvalidLogin();
         const reject = async (): Promise<never> => {
-          await Promise.all(keys.map((k) => recordAttempt(k)));
-          throw new InvalidLogin();
+          throw new InvalidLogin(); // the reservation stays counted as a failure
         };
         const user = await db.user.findUnique({ where: { email: email.toLowerCase() } });
         if (!user?.passwordHash || !(await verifyPassword(password, user.passwordHash))) return reject();
         if (!user.emailVerified || user.suspendedAt) return reject();
         if (user.twoFactorEnabled && !(await verifySecondFactor(user, code ?? "", true))) return reject();
+        await succeeded(slot.ids);
         return { id: user.id, email: user.email, name: user.name };
       },
     }),
@@ -79,7 +79,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // that can be triggered from the browser, which would let a stolen
         // session survive the change.)
         if (user) token.sv = row.sessionVersion;
-        else if (token.sv !== row.sessionVersion) return null;
+        else if ((token.sv ?? 0) !== row.sessionVersion) return null; // tokens from before this field existed count as version 0
         token.sub = id;
         token.platformRole = row.platformRole;
         token.name = row.name;

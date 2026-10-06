@@ -35,7 +35,7 @@ export default async function MarketplacePage({ searchParams }: PageProps<"/app/
     tab === "sites" ? db.site.findMany({ where: siteWhere, include: { workspace: true }, orderBy: [{ domainRating: "desc" }], take: 60 }) : [],
     tab === "requests"
       ? db.linkRequest.findMany({
-          where: { status: "OPEN", workspaceId: { not: workspace.id }, ...(niche ? { OR: [{ niches: { has: niche } }, { niches: { isEmpty: true }, site: { niche } }] } : {}), ...(q ? { site: { domain: { contains: q } } } : {}) },
+          where: { status: "OPEN", workspaceId: { not: workspace.id }, workspace: { suspendedAt: null }, ...(niche ? { OR: [{ niches: { has: niche } }, { niches: { isEmpty: true }, site: { niche } }] } : {}), ...(q ? { site: { domain: { contains: q } } } : {}) },
           include: { site: true, workspace: true },
           orderBy: { createdAt: "desc" },
           take: 60,

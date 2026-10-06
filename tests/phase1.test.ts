@@ -153,3 +153,12 @@ describe("isPrivateIp: IPv6 forms that embed IPv4", () => {
     expect(isPrivateIp("not-an-ip")).toBe(true);
   });
 });
+
+describe("review fixes: verification redirects", () => {
+  it("fails meta/file checks that end on another host", async () => {
+    const page = async () => ({ ok: true, status: 200, body: `<meta name="linkable-site-verification" content="${TOKEN}">`, url: "https://evil-host.net/" });
+    expect((await verifyMetaTag("example.com", TOKEN, page)).ok).toBe(false);
+    const www = async () => ({ ok: true, status: 200, body: `<meta name="linkable-site-verification" content="${TOKEN}">`, url: "https://www.example.com/" });
+    expect((await verifyMetaTag("example.com", TOKEN, www)).ok).toBe(true);
+  });
+});

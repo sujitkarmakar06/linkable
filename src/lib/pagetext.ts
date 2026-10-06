@@ -20,6 +20,7 @@ export function summarisePage(html: string, maxChars = 3000) {
 
 // <loc> entries from a sitemap or sitemap index.
 export function parseSitemap(xml: string): { urls: string[]; sitemaps: string[] } {
-  const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => decode(m[1]));
+  // Plain or CDATA-wrapped <loc> values.
+  const locs = [...xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?\s*([^<\s\]]+)\s*(?:\]\]>)?\s*<\/loc>/gi)].map((m) => decode(m[1]));
   return /<sitemapindex/i.test(xml) ? { urls: [], sitemaps: locs } : { urls: locs, sitemaps: [] };
 }

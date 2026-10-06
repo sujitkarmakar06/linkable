@@ -60,7 +60,9 @@ export async function resolveDisputeAction(_: FormState, form: FormData): Promis
     const claimed = await tx.dispute.updateMany({ where: { id: dispute.id, status: "OPEN" }, data: { status: outcome === "dismiss" ? "REJECTED" : "RESOLVED", resolution: note, resolvedById: admin.id, resolvedAt: new Date() } });
     if (claimed.count !== 1) return false;
     if (outcome === "refund_leg" && leg) {
-      await tx.dealLeg.updateMany({ where: { id: leg.id, status: { notIn: ["REMOVED", "CANCELLED"] } }, data: { status: "REMOVED", removedAt: new Date() } });
+      // No-fault refund: closed as REMOVED but without removedAt, so it doesn't
+      // count toward auto-suspension or "removed" stats.
+      await tx.dealLeg.updateMany({ where: { id: leg.id, status: { notIn: ["REMOVED", "CANCELLED"] } }, data: { status: "REMOVED" } });
       await refundLeg(tx, leg, admin.id);
     }
     if (outcome === "refund_and_penalize" && leg)

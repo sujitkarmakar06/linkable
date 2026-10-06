@@ -58,3 +58,16 @@ describe("guest-post safety", () => {
     expect(validateGuestPost({ ...ok, body: `${words900} ${link} [click](javascript:alert(1))` }).join(" ")).toMatch(/http:\/\/ or https:\/\//);
   });
 });
+
+describe("review fixes: links the renderer sees", () => {
+  const ok = { title: "How to price a SaaS product", targetUrl: "https://a-money.com/pricing", anchor: "pricing tool", receiverDomain: "a-money.com", minWords: 800 };
+  const words900 = Array.from({ length: 900 }, (_, i) => `w${i}`).join(" ");
+  it("catches reference-style javascript: links and bare URLs to the receiver", () => {
+    const link = "[pricing tool](https://a-money.com/pricing)";
+    expect(validateGuestPost({ ...ok, body: `${words900} ${link} Click [here][1]\n\n[1]: javascript:alert(1)` }).join(" ")).toMatch(/http:\/\/ or https:\/\//);
+    expect(validateGuestPost({ ...ok, body: `${words900} ${link} also https://a-money.com/other` }).join(" ")).toMatch(/Only one link/);
+  });
+  it("parses CDATA sitemap entries", () => {
+    expect(parseSitemap("<urlset><url><loc><![CDATA[https://a.com/x]]></loc></url></urlset>").urls).toEqual(["https://a.com/x"]);
+  });
+});

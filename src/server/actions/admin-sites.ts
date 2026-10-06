@@ -31,7 +31,7 @@ export async function approveSiteAction(_: FormState, form: FormData): Promise<F
   let granted = false;
   await db.$transaction(async (tx) => {
     await tx.site.update({ where: { id: site.id }, data: { status: "APPROVED", reviewNote: note, reviewedAt: new Date(), reviewedById: admin.id } });
-    granted = await grantStarterCreditsOnce(tx, site.workspaceId, settings.starterCredits, admin.id);
+    granted = await grantStarterCreditsOnce(tx, site.workspaceId, settings.starterCredits, admin.id, site.domain);
     await tx.auditLog.create({ data: { actorId: admin.id, workspaceId: site.workspaceId, action: "admin.site_approved", target: site.id, meta: { granted } } });
   });
   // A newly approved giver site may fit requests that are waiting.
@@ -67,6 +67,8 @@ export async function setSiteMetricsAction(_: FormState, form: FormData): Promis
     .safeParse(Object.fromEntries(form));
   if (!parsed.success) return { error: "DR must be 0-100 and traffic a whole number." };
   const { siteId, domainRating, organicTraffic } = parsed.data;
+  const target = await db.site.findUnique({ where: { id: siteId } });
+  if (!target?.verifiedAt) return { error: "Ownership isn't proven for this site yet." };
   await db.site.update({ where: { id: siteId }, data: { domainRating, organicTraffic, metricsProvider: "manual", metricsUpdatedAt: new Date() } });
   await db.auditLog.create({ data: { actorId: admin.id, action: "admin.site_metrics_set", target: siteId, meta: { domainRating, organicTraffic } } });
   // Re-run the rules: manual metrics below the minimums auto-reject.

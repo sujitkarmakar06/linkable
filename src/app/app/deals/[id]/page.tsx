@@ -170,7 +170,7 @@ ${leg.guestPost.body}`} className="w-full rounded-md border border-border bg-bg 
                   <p className="mt-1 text-xs text-muted">{Math.max(0, settings.aiSuggestionsPerMonth - aiUsed.suggestions)} AI suggestions left this month.</p>
                 </div>
               )}
-              {canAct && giving && (leg.placementType === "GUEST_POST" ? ["CONTENT_APPROVED", "PLACED"] : ["PENDING", "PLACED"]).includes(leg.status) && deal.status !== "CANCELLED" && (
+              {canAct && giving && (leg.placementType === "GUEST_POST" ? ["CONTENT_APPROVED", "PLACED"] : ["PENDING", "PLACED"]).includes(leg.status) && open && (
                 <div className="mt-4 border-t border-border pt-4">
                   <ActionForm action={placeLegAction} submit={leg.status === "PLACED" ? "Update page URL" : "Mark as placed"}>
                     <input type="hidden" name="legId" value={leg.id} />

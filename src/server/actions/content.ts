@@ -45,15 +45,20 @@ export async function submitGuestPostAction(_: FormState, form: FormData): Promi
   if (/\[VERIFY:/i.test(body)) return { error: "Replace every [VERIFY: ...] placeholder with a real, checked source (or remove the claim) before submitting." };
 
   const aiDrafted = drafts.length > 0;
-  await db.$transaction(async (tx) => {
+  const ok = await db.$transaction(async (tx) => {
+    await lockWorkspaces(tx, [leg.giverWorkspaceId, leg.receiverWorkspaceId]);
+    // Re-check under the lock: a double submit or a concurrent cancel must not apply.
+    const { count } = await tx.dealLeg.updateMany({ where: { id: leg.id, status: "PENDING", deal: { status: { notIn: ["CANCELLED", "COMPLETED", "DISPUTED"] } } }, data: { status: "CONTENT_SUBMITTED" } });
+    if (count !== 1) return false;
     await tx.guestPost.upsert({
       where: { legId: leg.id },
       create: { legId: leg.id, title, body, aiDrafted, status: "submitted" },
       update: { title, body, aiDrafted: aiDrafted || undefined, status: "submitted", hostNote: null, revision: { increment: 1 } },
     });
-    await tx.dealLeg.update({ where: { id: leg.id }, data: { status: "CONTENT_SUBMITTED" } });
     await tx.auditLog.create({ data: { actorId: user.id, workspaceId: workspace.id, action: "guestpost.submitted", target: leg.id, meta: { aiDrafted } } });
+    return true;
   });
+  if (!ok) return { error: "This post was already submitted or the deal changed. Reload the page." };
   await notifyWorkspace(leg.giverWorkspaceId, { kind: "guestpost.submitted", title: `Guest post to review for ${leg.fromSite.domain}`, body: `"${title}"${aiDrafted ? " (AI-assisted)" : ""} is ready for your review.`, path: dealPath(leg.dealId) }, { everyone: true });
   revalidatePath(dealPath(leg.dealId));
   return { ok: "Submitted for review." };

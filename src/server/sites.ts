@@ -54,11 +54,18 @@ export async function assessSite(siteId: string, { forceMetrics = false } = {}) 
   let domainRating = site.domainRating;
   let organicTraffic = site.organicTraffic;
   let metricsProvider = site.metricsProvider;
+  let fetchedNow = false;
   // Manually entered metrics stay unless an admin forces a refresh.
   if (forceMetrics || metricsProvider !== "manual") {
     try {
       const metrics = await getDomainMetrics(site.domain, { force: forceMetrics });
-      if (metrics) ({ domainRating, organicTraffic, provider: metricsProvider } = metrics);
+      // Keep existing values when the provider has no data for this domain.
+      if (metrics && (metrics.domainRating != null || metrics.organicTraffic != null)) {
+        domainRating = metrics.domainRating ?? domainRating;
+        organicTraffic = metrics.organicTraffic ?? organicTraffic;
+        metricsProvider = metrics.provider;
+        fetchedNow = true;
+      }
     } catch (err) {
       console.error(`[metrics] ${site.domain}: ${(err as Error).message}`);
     }
@@ -77,7 +84,8 @@ export async function assessSite(siteId: string, { forceMetrics = false } = {}) 
   const result = evaluateSite({ niche: site.niche, domainRating, organicTraffic, spamScore: score }, settings);
   // Only sites still waiting on a decision move; approved/suspended sites keep
   // their status when an admin refreshes metrics.
-  const decide = site.status === "DRAFT" || site.status === "PENDING_REVIEW";
+  // Only a site with proven ownership can move into review or be auto-rejected.
+  const decide = Boolean(site.verifiedAt) && (site.status === "DRAFT" || site.status === "PENDING_REVIEW");
   const status = !decide ? site.status : result.decision === "reject" ? "REJECTED" : "PENDING_REVIEW";
 
   await db.site.update({
@@ -88,7 +96,7 @@ export async function assessSite(siteId: string, { forceMetrics = false } = {}) 
       domainRating,
       organicTraffic,
       metricsProvider,
-      metricsUpdatedAt: metricsProvider && metricsProvider !== site.metricsProvider ? new Date() : site.metricsUpdatedAt,
+      metricsUpdatedAt: fetchedNow ? new Date() : site.metricsUpdatedAt,
       spamScore: score,
       spamSignals: { signals, warnings: result.warnings },
       status,
@@ -111,17 +119,20 @@ export async function notifySiteDecision(workspaceId: string, domain: string, si
 
 // Grants starter credits the first time any site in the workspace is approved.
 // The workspace row lock makes concurrent approvals grant at most once.
-export async function grantStarterCreditsOnce(tx: Prisma.TransactionClient, workspaceId: string, amount: number, adminId: string) {
+export async function grantStarterCreditsOnce(tx: Prisma.TransactionClient, workspaceId: string, amount: number, adminId: string, domain: string) {
   if (amount <= 0) return false;
   await tx.$queryRaw`SELECT id FROM "Workspace" WHERE id = ${workspaceId} FOR UPDATE`;
-  const already = await tx.creditEntry.findFirst({ where: { workspaceId, reason: "SIGNUP_GRANT" } });
+  // Once per workspace, and once per domain ever: deleting a site and re-adding it
+  // in a new workspace must not earn the starter credits again.
+  const note = `Starter credits for first approved site (${domain})`;
+  const already = await tx.creditEntry.findFirst({ where: { reason: "SIGNUP_GRANT", OR: [{ workspaceId }, { note }] } });
   if (already) return false;
   await transferCredits(tx, {
     from: { workspaceId: null, bucket: "PLATFORM" },
     to: { workspaceId, bucket: "AVAILABLE" },
     amount,
     reason: "SIGNUP_GRANT",
-    note: "Starter credits for first approved site",
+    note,
     createdById: adminId,
   });
   return true;
