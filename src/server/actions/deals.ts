@@ -21,7 +21,9 @@ async function loadLeg(legId: string) {
 export async function placeLegAction(_: FormState, form: FormData): Promise<FormState> {
   const { workspace, leg } = await loadLeg(String(form.get("legId")));
   if (leg.giverWorkspaceId !== workspace.id) return { error: "Only the site giving the link can mark it placed." };
-  if (!["PENDING", "PLACED"].includes(leg.status)) return { error: "This link can't be changed now." };
+  // Guest posts go live only after the host has approved the content.
+  const placeable = leg.placementType === "GUEST_POST" ? ["CONTENT_APPROVED", "PLACED"] : ["PENDING", "PLACED"];
+  if (!placeable.includes(leg.status)) return { error: leg.placementType === "GUEST_POST" && leg.status === "PENDING" ? "Approve the guest post before publishing it." : "This link can't be changed now." };
   const url = String(form.get("sourcePageUrl") ?? "").trim();
   if (!urlOnDomain(url, leg.fromSite.domain)) return { error: `The page must be on ${leg.fromSite.domain}.` };
   await placeLeg(leg, url);

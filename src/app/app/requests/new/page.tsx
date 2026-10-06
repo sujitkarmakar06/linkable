@@ -5,6 +5,8 @@ import { getBalances } from "@/lib/ledger";
 import { NICHES } from "@/lib/niches";
 import { getSettings } from "@/lib/settings";
 import { createLinkRequestAction } from "@/server/actions/requests";
+import { aiEnabled } from "@/server/ai";
+import { AnchorSuggester } from "@/components/ai-widgets";
 import { requireMembership } from "@/server/session";
 import { ActionForm } from "@/components/action-form";
 import { Card, Field, Input, PageHeader, Select } from "@/components/ui";
@@ -30,7 +32,7 @@ export default async function NewRequestPage() {
         </Card>
       ) : (
         <Card className="max-w-2xl">
-          <ActionForm action={createLinkRequestAction} submit="Post request">
+          <ActionForm id="new-request" action={createLinkRequestAction} submit="Post request">
             <Field label="Site to receive the link">
               <Select name="siteId" required>
                 {sites.map((s) => (
@@ -46,6 +48,7 @@ export default async function NewRequestPage() {
             <Field label="Anchor texts" hint="One per line, up to 5. The giver picks one.">
               <textarea name="anchors" rows={3} required className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm" />
             </Field>
+            {aiEnabled() && <AnchorSuggester formId="new-request" />}
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Type">
                 <Select name="placementType" defaultValue="INSERTION">

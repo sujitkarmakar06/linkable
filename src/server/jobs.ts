@@ -8,7 +8,14 @@ import { notifyWorkspace } from "@/server/notify";
 // Overdue placements: tell both sides once, and dock the giver's reputation.
 export async function flagOverdue() {
   const legs = await db.dealLeg.findMany({
-    where: { status: "PENDING", dueAt: { lt: new Date() }, overdueNotifiedAt: null, deal: { status: { in: ["AGREED", "IN_PROGRESS"] } } },
+    where: {
+      dueAt: { lt: new Date() },
+      overdueNotifiedAt: null,
+      deal: { status: { in: ["AGREED", "IN_PROGRESS"] } },
+      // The giver is late on an insertion, or on publishing an approved guest post.
+      // (A guest post still waiting for content is the writer's delay, not the host's.)
+      OR: [{ placementType: "INSERTION", status: "PENDING" }, { placementType: "GUEST_POST", status: "CONTENT_APPROVED" }],
+    },
     include: { fromSite: true, toSite: true },
     take: 500,
   });

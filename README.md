@@ -8,7 +8,24 @@ Every placed link is checked weekly and guaranteed for 12 months.
 
 See [`docs/PLAN.md`](docs/PLAN.md) for the full product plan and roadmap.
 
-## Status: Phase 4 (trust: link checks, escrow, penalties, disputes) built
+## Status: Phase 5 (guest posts + AI) built
+
+Phase 5:
+- Guest-post workflow for links agreed as guest posts: the side receiving the link writes the post
+  (Markdown, at least 800 words, exactly one link with the agreed anchor to the agreed page); the host
+  approves, requests changes (up to 3 rounds) or, after that, rejects (escrow refunded). Once approved
+  the host gets copy-ready Markdown and HTML, has 7 days to publish, then marks it placed and the
+  crawler verifies it as usual.
+- AI (Claude API, `claude-opus-5-5`, with server-side refusal fallback):
+  - anchor suggestions on new link requests (mix of branded / partial / natural, avoiding anchors the
+    site already over-uses)
+  - "find the best page" for insertion links, chosen from the host's sitemap (only real URLs kept)
+  - full guest-post drafts that must be edited before submission; `[VERIFY: ...]` placeholders mark
+    facts to check and block submission until replaced; AI-assisted posts are labelled for the host
+  - content rules in every prompt: no medical/financial/legal advice, no competitor names, no invented
+    stats or quotes, no banned-niche content; web pages are passed as untrusted data
+  - monthly limits per workspace (20 suggestions, 3 drafts; editable in Admin); every call is logged
+- Free plan now allows 2 sites, so free users can run a real ABC swap
 
 Phase 4:
 - Link crawler: checks a link as soon as it's marked placed, then every 7 days (daily while failing).
@@ -71,7 +88,7 @@ Phase 0:
   double-entry credit ledger, escrow releases, link checks, disputes, reviews, audit log)
 - Credit pricing and escrow-release logic, with unit tests
 
-Next: Phase 5, guest-post workflow and AI features (anchors, placement pages, drafts).
+Next: Phase 6, notification preferences, admin analytics, reports/CSV export, login rate limiting, hardening, launch.
 
 ## Stack
 Next.js 16 (App Router, server actions) · TypeScript · Tailwind CSS 4 · Prisma 6 + PostgreSQL ·
@@ -91,6 +108,8 @@ terminal with their link, so you can click through locally.
 ### Testing link checks locally
 Outbound checks refuse private addresses. For local testing only (ignored when `NODE_ENV=production`),
 `FETCH_HOST_OVERRIDES="partner.com=127.0.0.1:4555"` sends requests for that domain to a local server.
+`AI_FAKE=1` (also ignored in production) returns canned AI responses so flows can be tested without
+an API key or cost.
 
 ## Checks
 ```bash
@@ -114,7 +133,9 @@ CI (`.github/workflows/ci.yml`) runs the same steps against a Postgres service.
    and `/api/cron/daily`. `vercel.json` schedules both once a day so it deploys on the Hobby plan;
    on Pro, change matching to hourly (`0 * * * *`). Matching also runs instantly on new requests
    and approvals, and Admin has "Run matching now" / "Run daily jobs now".
-8. Ahrefs: set `AHREFS_API_KEY`. Without it, admins enter DR and traffic by hand during review.
+8. AI: set `ANTHROPIC_API_KEY` (optional `ANTHROPIC_MODEL`, default `claude-opus-5-5`). Without it
+   the AI buttons are hidden and everything else works.
+9. Ahrefs: set `AHREFS_API_KEY`. Without it, admins enter DR and traffic by hand during review.
    The adapter targets the v3 Site Explorer `domain-rating` and `metrics` endpoints; do one
    test lookup after adding the key to confirm the response shape.
 

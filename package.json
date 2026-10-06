@@ -15,9 +15,11 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@auth/prisma-adapter": "^2.11.3",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
+    "marked": "^16.4.2",
     "next": "16.3.8",
     "next-auth": "^5.0.0-beta.32",
     "otplib": "^13.5.0",

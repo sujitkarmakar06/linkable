@@ -57,6 +57,10 @@ export default async function AdminPage() {
             {num("graceDays", "Grace period to restore a removed link (days)")}
             {num("removalPenaltyCredits", "Penalty for early removal (credits)")}
             {num("pairCooldownMonths", "Months before the same two workspaces can trade again")}
+            {num("guestPostMinWords", "Guest posts: minimum words")}
+            {num("guestPostMaxRevisions", "Guest posts: revision rounds before the host may reject")}
+            {num("aiSuggestionsPerMonth", "AI anchor/placement suggestions per workspace per month")}
+            {num("aiDraftsPerMonth", "AI guest-post drafts per workspace per month")}
           </div>
           <Field label="Banned niches" hint="Comma-separated.">
             <Input name="bannedNiches" defaultValue={settings.bannedNiches.join(", ")} />

@@ -20,6 +20,10 @@ const settingsSchema = z.object({
   graceDays: int(0, 60),
   removalPenaltyCredits: int(0, 100),
   pairCooldownMonths: int(0, 60),
+  guestPostMinWords: int(100, 5000),
+  guestPostMaxRevisions: int(0, 10),
+  aiSuggestionsPerMonth: int(0, 10000),
+  aiDraftsPerMonth: int(0, 1000),
 });
 
 export async function updateSettingsAction(_: FormState, form: FormData): Promise<FormState> {

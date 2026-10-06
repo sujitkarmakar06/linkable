@@ -1,6 +1,6 @@
 # Linkable - handoff notes
 
-Last updated: 2026-10-05, end of Phase 4. Read this first when resuming.
+Last updated: 2026-10-06, end of Phase 5. Read this first when resuming.
 
 ## Where things stand
 | Branch | Contents | State |
@@ -9,10 +9,11 @@ Last updated: 2026-10-05, end of Phase 4. Read this first when resuming.
 | `phase-1-sites` | + Phase 1: sites, 4 ownership-verification methods, metrics, quality rules, admin review | pushed |
 | `phase-2-deals` | + Phase 2: marketplace, link requests, offers, ABC swaps, deals, messaging, credits | pushed |
 | `phase-3-matching` | + Phase 3: automatic matching, footprint guard | pushed |
-| `phase-4-trust` | + Phase 4: link crawler, escrow releases, penalties, disputes, reviews, reputation | pushed, **latest** |
+| `phase-4-trust` | + Phase 4: link crawler, escrow releases, penalties, disputes, reviews, reputation | pushed |
+| `phase-5-content` | + Phase 5: guest-post workflow, AI anchors / placement finder / drafts, free plan 2 sites | pushed, **latest** |
 
 Each branch is stacked on the previous one. Nothing is merged into `main` and **no PRs exist** -
-the owner hasn't asked for any. Start Phase 5 on a new branch `phase-5-content` from `phase-4-trust`.
+the owner hasn't asked for any. Start Phase 6 on a new branch `phase-6-launch` from `phase-5-content`.
 
 Not deployed anywhere yet (no Vercel project, no domain).
 
@@ -31,35 +32,32 @@ See `docs/PLAN.md` for the full table. Key numbers: min DR 30, min 500 visits/mo
 2 starter credits on first approved site, DR-tier pricing (30-39=1, 40-59=2, 60-79=4, 80+=8),
 12-month guarantee, weekly checks, 7-day grace, 2-credit removal penalty, 6-month pair cooldown.
 
-Choices Claude made that the owner should confirm:
-1. Escrow uses cumulative rounding: 1 credit releases at 3 months; 2 credits = 1 now + 1 at 6 months.
-   (Option: pay 1-credit links immediately.)
-2. Removal penalties can push the giver's balance negative (blocks spending, not earning).
-   (Option: cap at the current balance.)
-3. Background jobs use Vercel Cron -> `/api/cron/matching` and `/api/cron/daily`, both daily so
-   the Hobby plan can deploy. On Pro, make matching hourly. (Plan originally said Inngest.)
-4. With 1 site per free workspace, manual ABC swaps need a second site on one side; free users
-   trade via credits. Owner was asked whether to raise the free limit to 2 - **no answer yet**.
+Owner decisions confirmed on 2026-10-06:
+1. Escrow keeps holding back small deals (1 credit at 3 months; 2 credits = 1 now + 1 at 6 months).
+2. Removal penalties may push the giver's balance negative (blocks spending, not earning).
+3. Vercel Hobby for now: both crons (`/api/cron/matching`, `/api/cron/daily`) run daily.
+4. Free plan raised to 2 sites (migration `*_content_ai` bumps existing settings rows).
+5. Guest posts: 800+ words, 3 revision rounds; AI full drafts allowed but must be edited and are
+   labelled; 20 AI suggestions + 3 drafts per workspace per month; AI never writes medical/financial/
+   legal advice, competitor names, invented stats/quotes, or banned-niche content.
 
-## Phase 5 - agreed scope (start here)
-From the owner's answers: "Insertions + guest posts + AI help (Claude API)".
-1. Guest-post workflow on `DealLeg` with `placementType = GUEST_POST` (model `GuestPost` already
-   exists in the schema): receiver submits title + body -> host approves / requests changes
-   (revision count) -> host publishes and marks the leg placed -> crawler verifies as usual.
-   Leg statuses CONTENT_SUBMITTED / CONTENT_APPROVED already exist.
-2. AI features via the Claude API (`ANTHROPIC_API_KEY`; load the `claude-api` skill before coding
-   and use the latest model IDs):
-   - anchor text suggestions for a target URL (varied, natural, avoids over-used anchors -
-     reuse the footprint anchor stats)
-   - best placement page on the host site (read its sitemap via `safeGet`, rank pages by relevance)
-   - guest-post draft generation (marked `aiDrafted`), editable before submission
-3. Questions to ask the owner before building Phase 5:
-   - word-count / quality rules for guest posts? who can reject and how many revisions?
-   - should AI drafts be allowed at all for guest posts, or only as outlines?
-   - monthly AI usage limits per free workspace (cost control)?
-   - any content the AI must never write (YMYL, competitor mentions)?
-4. Phase 6 after that: notification preferences, admin analytics, reports/CSV export,
-   login rate limiting (needs a shared store, e.g. Upstash), security hardening, launch.
+## Phase 5 - what was built
+- `src/lib/guestpost.ts` (rules, word count, link checks, draft hashing), `src/lib/pagetext.ts`
+  (page summaries, sitemap parsing), `src/lib/ai-prompts.ts` (system prompts + content rules),
+  `src/server/ai.ts` (Claude API calls, quotas, usage log, fake mode), `src/server/actions/content.ts`
+  (guest-post submit/review, AI actions), `src/components/guest-post.tsx`, `src/components/ai-widgets.tsx`.
+- Model `claude-opus-5-5` with `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`);
+  structured JSON output for anchors/placement (effort low), streamed text for drafts (effort medium).
+- The real Claude API path has **not** been run (no key in the sandbox); flows were tested with
+  `AI_FAKE=1`. First real calls should be watched for output quality and cost.
+
+## Phase 6 - next (ask the owner before building)
+Planned: notification preferences (which emails, digest), admin analytics (signups, deals, credit
+economy, AI spend), reports / CSV export, login rate limiting (needs a shared store such as Upstash
+Redis), security review and hardening, Terms of Service / privacy pages, e2e tests moved into the
+repo (`e2e/`), production deploy on Vercel + Neon.
+Questions to ask: which reports and who receives them; email digest vs instant; Upstash OK as a new
+vendor; who writes the ToS (legal); target launch date and domain.
 
 ## How to run locally
 ```bash
@@ -76,7 +74,7 @@ Schema changes: `prisma migrate dev` refuses to run non-interactively here, so g
 then `prisma migrate deploy`. Set both `DATABASE_URL` and `DIRECT_URL` when targeting another DB.
 
 ## Testing notes
-- 57 unit tests (`tests/`). Browser end-to-end scripts used Playwright with
+- 64 unit tests (`tests/`). Browser end-to-end scripts used Playwright with
   `/opt/pw-browsers/chromium` against a separate `linkable_e2e` database; they lived in the
   session scratchpad and are not in the repo (worth adding under `e2e/` in Phase 6).
 - The sandbox blocks direct outbound HTTP, so live DNS/meta/file/GSC verification and real crawls

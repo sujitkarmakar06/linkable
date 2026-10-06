@@ -10,6 +10,12 @@ import { DEAL_LABEL, LEG_LABEL, Pill } from "@/components/deal-status";
 import { Flash } from "@/components/flash";
 import { FootprintNotes } from "@/components/footprint-notes";
 import { Thread } from "@/components/thread";
+import { PlacementSuggester } from "@/components/ai-widgets";
+import { GuestPostEditor, GuestPostReview } from "@/components/guest-post";
+import { countWords } from "@/lib/guestpost";
+import { getSettings } from "@/lib/settings";
+import { aiEnabled, aiUsageThisMonth } from "@/server/ai";
+import { marked } from "marked";
 import { Alert, Card, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export const metadata: Metadata = { title: "Deal" };
@@ -23,7 +29,7 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
   const deal = await db.deal.findFirst({
     where: { id, participants: { some: { workspaceId: workspace.id } } },
     include: {
-      legs: { include: { fromSite: true, toSite: true, checks: { orderBy: { checkedAt: "desc" }, take: 5 } }, orderBy: { createdAt: "asc" } },
+      legs: { include: { fromSite: true, toSite: true, guestPost: true, checks: { orderBy: { checkedAt: "desc" }, take: 5 } }, orderBy: { createdAt: "asc" } },
       participants: { include: { workspace: true } },
       disputes: { orderBy: { createdAt: "desc" } },
       reviews: true,
@@ -35,6 +41,9 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
   const canDispute = !["CANCELLED", "COMPLETED", "DISPUTED"].includes(deal.status);
   const names = new Map(deal.participants.map((p) => [p.workspaceId, p.workspace.name]));
   const canAct = hasRole(membership.role, "MEMBER");
+  const [settings, aiUsed] = await Promise.all([getSettings(), aiUsageThisMonth(workspace.id)]);
+  const ai = aiEnabled();
+  const open = !["CANCELLED", "COMPLETED", "DISPUTED"].includes(deal.status);
   const cancellable = !["CANCELLED", "COMPLETED"].includes(deal.status) && deal.legs.every((l) => !["PLACED", "VERIFIED"].includes(l.status));
 
   return (
@@ -101,7 +110,67 @@ export default async function DealPage({ params, searchParams }: PageProps<"/app
                   </div>
                 )}
               </dl>
-              {canAct && giving && ["PENDING", "PLACED"].includes(leg.status) && deal.status !== "CANCELLED" && (
+              {leg.placementType === "GUEST_POST" && (
+                <div className="mt-4 border-t border-border pt-4">
+                  <div className="mb-2 text-sm font-medium">Guest post</div>
+                  {receiving && leg.status === "PENDING" && open && canAct ? (
+                    <GuestPostEditor
+                      legId={leg.id}
+                      anchor={leg.anchor}
+                      targetUrl={leg.targetUrl}
+                      minWords={settings.guestPostMinWords}
+                      aiEnabled={ai}
+                      aiDraftsLeft={Math.max(0, settings.aiDraftsPerMonth - aiUsed.drafts)}
+                      initial={leg.guestPost ? { title: leg.guestPost.title, body: leg.guestPost.body, hostNote: leg.guestPost.hostNote, revision: leg.guestPost.revision } : null}
+                    />
+                  ) : giving && leg.status === "PENDING" ? (
+                    <p className="text-sm text-muted">
+                      Waiting for {names.get(leg.receiverWorkspaceId)} to {leg.guestPost ? "revise the post" : "submit the post"}.
+                      {leg.guestPost?.hostNote && ` Your note: ${leg.guestPost.hostNote}`}
+                    </p>
+                  ) : receiving && leg.status === "CONTENT_SUBMITTED" ? (
+                    <p className="text-sm text-muted">Submitted &quot;{leg.guestPost?.title}&quot; (revision {leg.guestPost?.revision}). Waiting for {names.get(leg.giverWorkspaceId)} to review it.</p>
+                  ) : leg.guestPost ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="text-sm">
+                        <strong>{leg.guestPost.title}</strong>{" "}
+                        <span className="text-muted">
+                          · {countWords(leg.guestPost.body)} words · revision {leg.guestPost.revision}
+                          {leg.guestPost.aiDrafted && " · AI-assisted"} · {leg.guestPost.status.replace("_", " ")}
+                        </span>
+                      </div>
+                      {giving && ["CONTENT_APPROVED", "PLACED", "VERIFIED", "FAILING"].includes(leg.status) ? (
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          <Field label="Markdown (copy into your CMS)">
+                            <textarea readOnly rows={8} defaultValue={`# ${leg.guestPost.title}
+
+${leg.guestPost.body}`} className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-xs" />
+                          </Field>
+                          <Field label="HTML">
+                            <textarea readOnly rows={8} defaultValue={marked.parse(leg.guestPost.body, { async: false })} className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-xs" />
+                          </Field>
+                        </div>
+                      ) : (
+                        <pre className="max-h-96 overflow-auto rounded-md border border-border bg-bg p-3 text-sm whitespace-pre-wrap">{leg.guestPost.body}</pre>
+                      )}
+                      {giving && leg.status === "CONTENT_SUBMITTED" && canAct && (
+                        <GuestPostReview
+                          legId={leg.id}
+                          canRequestChanges={leg.guestPost.revision <= settings.guestPostMaxRevisions}
+                          canReject={leg.guestPost.revision > settings.guestPostMaxRevisions}
+                        />
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+              {canAct && giving && ai && leg.placementType === "INSERTION" && leg.status === "PENDING" && open && (
+                <div className="mt-4 border-t border-border pt-4">
+                  <PlacementSuggester legId={leg.id} />
+                  <p className="mt-1 text-xs text-muted">{Math.max(0, settings.aiSuggestionsPerMonth - aiUsed.suggestions)} AI suggestions left this month.</p>
+                </div>
+              )}
+              {canAct && giving && (leg.placementType === "GUEST_POST" ? ["CONTENT_APPROVED", "PLACED"] : ["PENDING", "PLACED"]).includes(leg.status) && deal.status !== "CANCELLED" && (
                 <div className="mt-4 border-t border-border pt-4">
                   <ActionForm action={placeLegAction} submit={leg.status === "PLACED" ? "Update page URL" : "Mark as placed"}>
                     <input type="hidden" name="legId" value={leg.id} />
