@@ -12,6 +12,9 @@ import { ActionForm } from "@/components/action-form";
 import { SiteFields } from "@/components/site-fields";
 import { formatNumber, SiteStatusBadge } from "@/components/site-status";
 import { Alert, Button, Card, PageHeader } from "@/components/ui";
+import { LinkProfile } from "@/components/link-profile";
+import { buildProfile } from "@/lib/profile";
+import { asTopics } from "@/lib/topics";
 
 export const metadata: Metadata = { title: "Site" };
 
@@ -52,6 +55,13 @@ export default async function SitePage({ params, searchParams }: PageProps<"/app
   const { membership, workspace } = await requireMembership();
   const site = await db.site.findFirst({ where: { id, workspaceId: workspace.id }, include: { gsc: true } });
   if (!site) notFound();
+  const profile = site.canReceive
+    ? buildProfile(
+        await db.dealLeg.findMany({ where: { toSiteId: site.id }, select: { anchor: true, rel: true, status: true, createdAt: true, verifiedAt: true } }),
+        site,
+      )
+    : null;
+  const topics = asTopics(site.topics);
   const settings = await getSettings();
   const canManage = hasRole(membership.role, "ADMIN");
   const assessment = site.spamSignals as { signals?: SpamSignal[]; warnings?: string[] } | null;
@@ -208,6 +218,31 @@ export default async function SitePage({ params, searchParams }: PageProps<"/app
             </div>
           )}
         </Card>
+
+        {profile && site.status === "APPROVED" && (
+          <Card title="Link profile" description="Links to this site through Linkable. Keep the mix natural: mostly branded, URL and generic anchors, and a steady pace.">
+            <LinkProfile profile={profile} />
+          </Card>
+        )}
+
+        {site.canGive && site.status === "APPROVED" && (
+          <Card title="Topics" description="Read from your homepage and recent posts, refreshed monthly. Requests whose pages share these topics rank your site higher.">
+            {topics?.length ? (
+              <div className="flex flex-col gap-2 text-sm">
+                {site.topicSummary && <p>{site.topicSummary}</p>}
+                <p className="text-muted">
+                  {topics
+                    .filter((t) => !t.t.includes(" "))
+                    .slice(0, 15)
+                    .map((t) => t.t)
+                    .join(", ")}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted">{site.topicsUpdatedAt ? `We couldn't read topics from ${site.domain} last time; it's retried monthly.` : "Not read yet. This happens within a day of approval."}</p>
+            )}
+          </Card>
+        )}
 
         {canManage && (
           <Card title="Settings">

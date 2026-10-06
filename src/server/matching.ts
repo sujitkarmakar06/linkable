@@ -7,6 +7,8 @@ import { getSettings, priceRules } from "@/lib/settings";
 import { createDealFromTerms, DealError } from "@/server/deals";
 import { checkLink } from "@/server/footprint";
 import { notifyWorkspace } from "@/server/notify";
+import { asTopics, relevanceScore } from "@/lib/topics";
+import { ensureRequestTopics } from "@/server/topics";
 
 export const MATCHES_PER_REQUEST = 3;
 export const MATCH_TTL_HOURS = 72;
@@ -16,6 +18,8 @@ const monthStart = () => new Date(Date.UTC(new Date().getUTCFullYear(), new Date
 // Offer one open request to the best available giver sites until it has
 // MATCHES_PER_REQUEST live offers. Returns how many new matches were made.
 export async function runMatchingForRequest(requestId: string): Promise<number> {
+  // Read the target page's topics before taking the lock (network, not database work).
+  await ensureRequestTopics(requestId).catch((err) => console.error("[topics]", err));
   // Matching can be triggered from several places at once (new request, site
   // approval, cron, admin button, a decline). A per-request advisory lock makes
   // each run see the previous run's offers, so a request never gets more than
@@ -34,6 +38,7 @@ export async function runMatchingForRequest(requestId: string): Promise<number> 
       const rules = priceRules(settings);
       const { available } = await getBalances(request.workspaceId);
       const niches = request.niches.length ? request.niches : [request.site.niche];
+      const targetTopics = asTopics(request.targetTopics);
       const tried = request.matches.map((m) => m.siteId);
       // One offer per workspace: skip workspaces holding a live offer, and ones
       // that already declined this request.
@@ -62,18 +67,28 @@ export async function runMatchingForRequest(requestId: string): Promise<number> 
         const footprint = await checkLink(site, request.site, request.anchors[0] ?? "", { client: tx });
         if (footprint.blocks.length) continue;
         const linksThisMonth = await tx.dealLeg.count({ where: { fromSiteId: site.id, status: { notIn: ["CANCELLED", "REMOVED"] }, createdAt: { gte: monthStart() } } });
+        const relevance = relevanceScore(asTopics(site.topics), targetTopics);
         const score = scoreCandidate(
-          { niche: site.niche, domainRating: site.domainRating ?? 0, organicTraffic: site.organicTraffic, reputation: site.workspace.reputation, linksThisMonth, maxOutboundPerMonth: site.maxOutboundPerMonth },
+          { niche: site.niche, domainRating: site.domainRating ?? 0, organicTraffic: site.organicTraffic, reputation: site.workspace.reputation, linksThisMonth, maxOutboundPerMonth: site.maxOutboundPerMonth, relevance },
           { siteNiche: request.site.niche },
         );
-        scored.push({ site, workspaceId: site.workspaceId, credits, score, warnings: footprint.warnings });
+        scored.push({ site, workspaceId: site.workspaceId, credits, score, relevance, warnings: footprint.warnings });
       }
 
       const expiresAt = new Date(Date.now() + MATCH_TTL_HOURS * 3_600_000);
       const made = [];
       for (const p of pickTop(scored, need)) {
         const match = await tx.match.create({
-          data: { linkRequestId: request.id, siteId: p.site.id, workspaceId: p.workspaceId, score: p.score, credits: p.credits, expiresAt, footprint: p.warnings.length ? { warnings: p.warnings } : undefined },
+          data: {
+            linkRequestId: request.id,
+            siteId: p.site.id,
+            workspaceId: p.workspaceId,
+            score: p.score,
+            relevance: p.relevance,
+            credits: p.credits,
+            expiresAt,
+            footprint: p.warnings.length ? { warnings: p.warnings } : undefined,
+          },
         });
         made.push({ match, domain: p.site.domain, credits: p.credits, workspaceId: p.workspaceId, niche: request.site.niche });
       }

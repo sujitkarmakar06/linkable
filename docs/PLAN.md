@@ -54,7 +54,7 @@ Agreed with the product owner on 2026-10-05.
 | 5 | Guest-post workflow + AI features | **Built** |
 | 6 | Email preferences + digest + monthly report, inbox, CSV exports, admin analytics, rate limiting, security hardening, legal drafts, e2e in CI | **Built** |
 | 7 | Proof: link impact tracking (Search Console clicks/impressions/position at 30/60/90 days), indexing check gating escrow | **Built** |
-| 8 | Safety: link profile planner (anchor mix, link velocity warnings), AI relevance score in matching | Planned |
+| 8 | Safety: link profile planner (anchor mix, link velocity warnings), AI relevance score in matching | **Built** |
 | 9 | Placement: WordPress plugin (verify + approved insertion + report back), opt-in broken-link swaps | Planned |
 | 10 | Growth: expert quote requests, invite non-member sites, branded agency client reports | Planned |
 
@@ -70,6 +70,17 @@ Agreed with the product owner on 2026-10-05.
 - **Client reports:** branded monthly PDF per client site (agency logo + colour, no Linkable branding) plus a private read-only share link.
 - **Pricing:** everything free for now; features that could become paid later (plugin auto-placement, client reports) are flagged in code.
 - Ahrefs is still never called without the owner's explicit permission each time.
+
+## Phase 8 defaults (chosen by Claude at the owner's request, 2026-10-06; change any of them)
+- **Relevance:** topic terms read from each giving site's homepage + 4 sitemap posts (refreshed monthly) and from each
+  request's target page; AI adds 10-15 keywords when enabled (platform cost, not a workspace quota). Score 0-100;
+  High 70+, Medium 40-69. Matching weights: niche 20, relevance 25 (neutral 12.5 when unknown), DR 20, traffic 15,
+  reputation 12, capacity 8.
+- **Anchor types:** branded (domain name or brand names set on the site), URL, generic (fixed list), keyword (the rest).
+  Target mix shown to users: branded 35%, URL 15%, generic 15%, keyword 35%.
+- **Warnings (never blocks):** keyword anchors over 50% (5+ links); one non-brand anchor over 30% (3+ links); a month with
+  more than max(4, 2x the previous 5 months' average) links; all links dofollow (8+ links). The keyword-share and
+  monthly-pace rules also warn at deal time through the footprint guard.
 
 ## Risks
 - Google's spam policies treat large-scale link exchanges as link schemes. Non-reciprocal

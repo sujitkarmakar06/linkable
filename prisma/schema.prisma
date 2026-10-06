@@ -269,8 +269,16 @@ model Site {
 
   spamScore   Int? // 0-100, higher = more likely PBN/spam
   spamSignals Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+
+  // Brand names for anchor classification (empty = derived from the domain).
+  brandTerms      String[]  @default([])
+  // Weighted topic terms from the homepage and recent posts ([{ t, w }]), used
+  // to score how relevant a link from this site is to a target page.
+  topics          Json?
+  topicSummary    String?
+  topicsUpdatedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   linkRequests LinkRequest[]
@@ -319,6 +327,8 @@ model LinkRequest {
   // Let the matching engine offer this request to suitable giver sites.
   autoMatch       Boolean           @default(true)
   status          LinkRequestStatus @default(OPEN)
+  targetTopics    Json? // topic terms of the target page, see Site.topics
+  targetTopicsAt  DateTime?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -350,6 +360,7 @@ model Match {
   siteId        String // giver site
   workspaceId   String // giver workspace
   score         Int
+  relevance     Int? // 0-100 topical fit of the giver site to the target page
   credits       Int // price at the time of matching
   status        MatchStatus @default(OFFERED)
   expiresAt     DateTime

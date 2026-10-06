@@ -9,6 +9,7 @@ import { runMonthlyReports } from "@/server/reports";
 import { PAYABLE_INDEX_STATES } from "@/lib/indexing";
 import { expireUnindexed, remindUnindexed, runIndexChecks } from "@/server/indexing";
 import { runImpactFetch } from "@/server/impact";
+import { refreshStaleTopics } from "@/server/topics";
 
 // Overdue placements: tell both sides once, and dock the giver's reputation.
 export async function flagOverdue() {
@@ -122,9 +123,10 @@ export async function runDaily() {
   const released = await releaseDueEscrow();
   const completed = await completeDeals();
   const impact = await runImpactFetch();
+  const topics = await refreshStaleTopics();
   const digests = await sendDigests();
   const reports = await runMonthlyReports();
   // Rate-limit records only matter for minutes; keep a day for investigation.
   const pruned = (await db.loginAttempt.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 86_400_000) } } })).count;
-  return { overdue, checks, indexing: { checked: indexing.checked, indexed: indexing.indexed.length }, notIndexed, indexReminders, released, completed, impact, digests, reports, pruned };
+  return { overdue, checks, indexing: { checked: indexing.checked, indexed: indexing.indexed.length }, notIndexed, indexReminders, released, completed, impact, topics, digests, reports, pruned };
 }

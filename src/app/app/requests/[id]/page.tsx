@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { hasRole } from "@/lib/roles";
 import { getSettings, priceRules } from "@/lib/settings";
 import type { Terms } from "@/lib/terms";
+import { asTopics } from "@/lib/topics";
 import { createOfferAction } from "@/server/actions/proposals";
 import { cancelLinkRequestAction } from "@/server/actions/requests";
 import { requireMembership } from "@/server/session";
@@ -27,6 +28,7 @@ export default async function RequestPage({ params }: PageProps<"/app/requests/[
 
   const matchCounts = own ? await db.match.groupBy({ by: ["status"], where: { linkRequestId: request.id }, _count: true }) : [];
   const liveMatches = own ? await db.match.count({ where: { linkRequestId: request.id, status: "OFFERED", expiresAt: { gt: new Date() } } }) : 0;
+  const targetTopics = asTopics(request.targetTopics);
   const offers = own
     ? await db.proposal.findMany({ where: { linkRequestId: request.id }, include: { fromWorkspace: true }, orderBy: { createdAt: "desc" } })
     : [];
@@ -75,14 +77,27 @@ export default async function RequestPage({ params }: PageProps<"/app/requests/[
         {own && (
           <Card title="Automatic matching">
             {request.autoMatch ? (
-              <p className="text-sm text-muted">
-                {request.status !== "OPEN"
-                  ? "Matching has stopped for this request."
-                  : liveMatches > 0
-                    ? `Offered to ${liveMatches} matching site${liveMatches === 1 ? "" : "s"}. The first to accept gets the deal.`
-                    : "Looking for matching sites. New candidates are checked every hour."}
-                {matchCounts.length > 0 && ` (${matchCounts.map((c) => `${c._count} ${c.status.toLowerCase()}`).join(", ")})`}
-              </p>
+              <div className="flex flex-col gap-2 text-sm text-muted">
+                <p>
+                  {request.status !== "OPEN"
+                    ? "Matching has stopped for this request."
+                    : liveMatches > 0
+                      ? `Offered to ${liveMatches} matching site${liveMatches === 1 ? "" : "s"}. The first to accept gets the deal.`
+                      : "Looking for matching sites. New candidates are checked regularly."}
+                  {matchCounts.length > 0 && ` (${matchCounts.map((c) => `${c._count} ${c.status.toLowerCase()}`).join(", ")})`}
+                </p>
+                <p>
+                  {targetTopics?.length
+                    ? `Sites are ranked partly by how well their topics fit your page. Topics we read from it: ${targetTopics
+                        .filter((t) => !t.t.includes(" "))
+                        .slice(0, 8)
+                        .map((t) => t.t)
+                        .join(", ")}.`
+                    : request.targetTopicsAt
+                      ? "We couldn't read the target page, so matches are ranked without topic fit."
+                      : "Reading the target page to rank sites by topic fit."}
+                </p>
+              </div>
             ) : (
               <p className="text-sm text-muted">Off - only manual offers.</p>
             )}

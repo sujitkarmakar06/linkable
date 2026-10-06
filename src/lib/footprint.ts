@@ -1,5 +1,7 @@
 // Footprint guard: rules that keep a link from looking like part of a link
 // scheme. Pure; server/footprint.ts loads the history it needs.
+import { classifyAnchor } from "./anchors";
+import { isVelocitySpike, KEYWORD_SHARE_LIMIT, MIN_SAMPLE } from "./profile";
 //
 // Blocks stop the deal. Warnings are shown to both sides and kept on the deal.
 
@@ -11,6 +13,7 @@ export type FootprintSite = {
   ipCClass: string | null;
   ownerFingerprint: string | null;
   maxOutboundPerMonth: number;
+  brandTerms?: string[];
 };
 
 export type FootprintHistory = {
@@ -20,6 +23,9 @@ export type FootprintHistory = {
   giverLinksThisMonth: number; // links placed or promised from the giver site this calendar month
   anchorUsesForTarget: number; // active links to the receiver domain using this anchor
   linksToTarget: number; // active links to the receiver domain
+  keywordAnchorsToTarget?: number; // of those, how many use keyword anchors (see lib/anchors)
+  receiverLinksThisMonth?: number; // links to the receiver agreed or live this calendar month
+  receiverPreviousMonths?: number[]; // the same for each of the previous five months
 };
 
 export type FootprintResult = { blocks: string[]; warnings: string[] };
@@ -87,6 +93,16 @@ export function evaluateFootprint(
   const uses = history.anchorUsesForTarget + 1;
   if (total >= ANCHOR_MIN_SAMPLE && uses / total > ANCHOR_SHARE_LIMIT)
     warnings.push(`"${anchor}" would be ${Math.round((uses / total) * 100)}% of the anchors pointing to ${receiver.domain}. Vary the anchor text.`);
+
+  // Link profile planner rules (warnings only).
+  if (classifyAnchor(anchor, receiver.domain, receiver.brandTerms) === "keyword") {
+    const keyword = (history.keywordAnchorsToTarget ?? 0) + 1;
+    if (total >= MIN_SAMPLE && keyword / total > KEYWORD_SHARE_LIMIT)
+      warnings.push(`Keyword anchors would be ${Math.round((keyword / total) * 100)}% of the links to ${receiver.domain}. A branded or URL anchor looks more natural.`);
+  }
+  const thisMonth = (history.receiverLinksThisMonth ?? 0) + 1;
+  if (history.receiverPreviousMonths && isVelocitySpike(thisMonth, history.receiverPreviousMonths))
+    warnings.push(`This would be link ${thisMonth} to ${receiver.domain} this month, well above its usual pace. Consider spreading links over the coming months.`);
 
   return { blocks, warnings };
 }

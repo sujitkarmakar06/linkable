@@ -20,6 +20,11 @@ const siteFields = z
     maxOutboundPerMonth: z.coerce.number().int().min(1, "At least 1").max(20, "At most 20 a month"),
     canGive: z.string().optional().transform((v) => v === "on"),
     canReceive: z.string().optional().transform((v) => v === "on"),
+    brandTerms: z
+      .string()
+      .optional()
+      .transform((v) => [...new Set((v ?? "").split(",").map((b) => b.trim()).filter(Boolean))])
+      .refine((v) => v.length <= 5 && v.every((b) => b.length <= 40), "Up to 5 brand names, 40 characters each"),
   })
   .refine((v) => v.canGive || v.canReceive, { message: "A site must give links, receive links, or both." });
 

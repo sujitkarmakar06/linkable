@@ -6,6 +6,7 @@ import { MATCH_TTL_HOURS } from "@/server/matching";
 import { requireMembership } from "@/server/session";
 import { ActionForm } from "@/components/action-form";
 import { Button, Card, Field, PageHeader, Select } from "@/components/ui";
+import { relevanceLabel } from "@/lib/topics";
 
 export const metadata: Metadata = { title: "Matches" };
 
@@ -45,6 +46,11 @@ export default async function MatchesPage() {
                   <div className="text-sm text-muted">
                     {r.site.niche} · {r.placementType === "GUEST_POST" ? "guest post" : "link insertion"} · {r.rel.toLowerCase()} · {hoursLeft(m.expiresAt)}h left
                   </div>
+                  {m.relevance != null && (
+                    <div className="mt-1 text-sm" title="How closely your site's topics match the page you'd link to">
+                      Topic fit: <strong>{relevanceLabel(m.relevance)}</strong> <span className="text-muted">({m.relevance}/100)</span>
+                    </div>
+                  )}
                 </div>
                 <div className="text-right">
                   <div className="text-2xl font-semibold tabular-nums">+{m.credits}</div>

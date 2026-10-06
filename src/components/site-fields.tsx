@@ -42,6 +42,9 @@ export function SiteFields({ site, bannedNiches }: { site?: Site; bannedNiches: 
           <Input name="country" defaultValue={site?.country ?? ""} placeholder="e.g. United States" maxLength={56} />
         </Field>
       </div>
+      <Field label="Brand names (optional)" hint="Comma-separated, e.g. Acme, Acme Tools. Used to tell branded anchors apart in your link profile; the domain name is always included.">
+        <Input name="brandTerms" defaultValue={site?.brandTerms.join(", ") ?? ""} maxLength={220} />
+      </Field>
     </>
   );
 }

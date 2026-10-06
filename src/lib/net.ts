@@ -32,11 +32,12 @@ const MAX_BYTES = 2 * 1024 * 1024;
 export type FetchResult = { ok: boolean; status: number; url: string; redirects: number; body: string; contentType: string; xRobotsTag: string | null };
 
 // Local testing only: FETCH_HOST_OVERRIDES="example.com=127.0.0.1:4555,..."
-// sends requests for those hosts to a local server over plain HTTP. Ignored in production.
+// sends requests for those hosts to a local server over plain HTTP ("*" matches
+// every other host, so tests never reach the real internet). Ignored in production.
 function hostOverride(url: URL): string | null {
   if (process.env.NODE_ENV === "production" || !process.env.FETCH_HOST_OVERRIDES) return null;
   const map = Object.fromEntries(process.env.FETCH_HOST_OVERRIDES.split(",").map((p) => p.trim().split("=") as [string, string]));
-  const target = map[url.hostname.replace(/^www\./, "")];
+  const target = map[url.hostname.replace(/^www\./, "")] ?? map["*"];
   return target ? `http://${target}${url.pathname}${url.search}` : null;
 }
 

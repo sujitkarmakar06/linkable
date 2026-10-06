@@ -39,7 +39,7 @@ export default defineConfig({
       AI_FAKE: "1",
       GSC_FAKE: "1",
       EMAIL_OUTBOX_FILE: OUTBOX,
-      FETCH_HOST_OVERRIDES: "b-partner.com=127.0.0.1:4555",
+      FETCH_HOST_OVERRIDES: "b-partner.com=127.0.0.1:4555,*=127.0.0.1:4555",
       PLATFORM_ADMIN_EMAILS: "admin@linkable.test",
       RESEND_API_KEY: "",
     },

@@ -1,12 +1,13 @@
 # Linkable - handoff notes
 
-Last updated: 2026-10-06, Phase 7 built on `phase-7-proof`. Read this first when resuming.
+Last updated: 2026-10-06, Phases 7 and 8 built on branches (not merged). Read this first when resuming.
 
 ## Where things stand
 | Branch | Contents | State |
 |---|---|---|
 | `main` | Phases 0-6 (merged via PR #4) + show/hide password toggle | **live** on Vercel: https://linkable-qe8q.vercel.app |
-| `phase-7-proof` | + Phase 7: Search Console connection, indexing gate on escrow, link impact tracking | pushed for review, not merged |
+| `phase-7-proof` | + Phase 7: Search Console connection, indexing gate on escrow, link impact tracking | pushed, not merged (needs Google sign-in live first) |
+| `phase-8-safety` | + Phase 8: relevance score in matching, link profile planner | pushed, not merged; stacked on phase-7-proof |
 
 Production: Vercel Hobby project `linkable-qe8q` (Sujit's GitHub account, region cle1), Neon Postgres
 (us-east-2), Resend with the `onboarding@resend.dev` test sender (only delivers to sujitk@solguruz.com
@@ -69,10 +70,19 @@ proposal close race, missing headers, tokens in production logs, login timing.
 - Needs before real use: Google sign-in configured, and the Google OAuth app published + verified. In
   "Testing" mode only test users can connect and Google expires their access after 7 days.
 
+## Phase 8 - what was built (defaults in docs/PLAN.md)
+- Relevance: `src/lib/topics.ts` (terms, cosine, 0-100), `src/server/topics.ts` (reads homepage + sitemap posts /
+  target page; AI keywords via `topicKeywords` in `src/server/ai.ts`). Site topics refresh on approval and monthly
+  (daily job, 10 sites/run); request topics are read before matching. `Match.relevance` shown on Matches.
+- Planner: `src/lib/anchors.ts` (anchor types, `Site.brandTerms`), `src/lib/profile.ts` (mix, months, warnings,
+  next-anchor suggestion), `src/components/link-profile.tsx` on the site page. Footprint guard adds keyword-share
+  and monthly-pace warnings at deal time.
+- `FETCH_HOST_OVERRIDES` accepts `*` (dev only) so tests never fetch real sites.
+
 ## Next steps (ask the owner)
 - Finish the live smoke test (sign-up, site verification, admin approval); Google sign-in setup;
   custom domain + Resend domain verification.
-- Phases 8-10 (planned in docs/PLAN.md): safety, placement (WordPress plugin), growth.
+- Phases 9-10 (planned in docs/PLAN.md): placement (WordPress plugin), growth.
 - Legal review of `/terms` and `/privacy`; then remove the draft banner (`src/components/legal.tsx`).
 - First real Claude API and Ahrefs calls (Ahrefs only with explicit permission) and a cost check.
 - Possible later work: paid plans (Stripe), notification bell dropdown, more admin moderation tools.
@@ -92,7 +102,7 @@ Schema changes: `prisma migrate dev` refuses to run non-interactively here, so g
 then `prisma migrate deploy`. Set both `DATABASE_URL` and `DIRECT_URL` when targeting another DB.
 
 ## Testing notes
-- 91 unit tests (`tests/`) and 11 Playwright end-to-end tests (`e2e/`, run with `npm run e2e`;
+- 104 unit tests (`tests/`) and 12 Playwright end-to-end tests (`e2e/`, run with `npm run e2e`;
   locally set `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium` in this sandbox). Both run in CI.
 - The sandbox blocks direct outbound HTTP, so live DNS/meta/file/GSC verification, real crawls and real
   Search Console calls were never run; local page serving uses `FETCH_HOST_OVERRIDES` (ignored in production).

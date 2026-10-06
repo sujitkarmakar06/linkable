@@ -1,6 +1,7 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { classifyAnchor } from "@/lib/anchors";
 import { evaluateFootprint, mergeResults, type FootprintResult, type FootprintSite } from "@/lib/footprint";
 import { getSettings } from "@/lib/settings";
 import type { Terms } from "@/lib/terms";
@@ -25,7 +26,8 @@ export async function checkLink(
   const since = monthsAgo(settings.pairCooldownMonths);
   const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
 
-  const [reverseLinksRecent, sameLinkActive, pairDeals, giverLinksThisMonth, anchorUsesForTarget, linksToTarget] = await Promise.all([
+  const sixMonthsBack = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() - 5, 1));
+  const [reverseLinksRecent, sameLinkActive, pairDeals, giverLinksThisMonth, anchorUsesForTarget, toTarget, recentToTarget] = await Promise.all([
     client.dealLeg.count({ where: { fromSiteId: receiver.id, toSiteId: giver.id, status: ACTIVE, createdAt: { gte: since } } }),
     client.dealLeg.count({ where: { fromSiteId: giver.id, toSiteId: receiver.id, status: ACTIVE } }),
     client.deal.findMany({
@@ -34,14 +36,28 @@ export async function checkLink(
     }),
     client.dealLeg.count({ where: { fromSiteId: giver.id, status: ACTIVE, createdAt: { gte: monthStart } } }),
     client.dealLeg.count({ where: { toSiteId: receiver.id, status: ACTIVE, anchor: { equals: anchor, mode: "insensitive" } } }),
-    client.dealLeg.count({ where: { toSiteId: receiver.id, status: ACTIVE } }),
+    client.dealLeg.findMany({ where: { toSiteId: receiver.id, status: ACTIVE }, select: { anchor: true } }),
+    client.dealLeg.findMany({ where: { toSiteId: receiver.id, status: ACTIVE, createdAt: { gte: sixMonthsBack } }, select: { createdAt: true } }),
   ]);
+  const monthIndex = (d: Date) => (d.getUTCFullYear() - sixMonthsBack.getUTCFullYear()) * 12 + d.getUTCMonth() - sixMonthsBack.getUTCMonth();
+  const perMonth = [0, 0, 0, 0, 0, 0];
+  for (const l of recentToTarget) perMonth[Math.min(5, Math.max(0, monthIndex(l.createdAt)))]++;
 
   return evaluateFootprint(
     giver,
     receiver,
     anchor,
-    { reverseLinksRecent, sameLinkActive, pairDealsRecent: pairDeals.length, giverLinksThisMonth: giverLinksThisMonth + extraFromGiver, anchorUsesForTarget, linksToTarget },
+    {
+      reverseLinksRecent,
+      sameLinkActive,
+      pairDealsRecent: pairDeals.length,
+      giverLinksThisMonth: giverLinksThisMonth + extraFromGiver,
+      anchorUsesForTarget,
+      linksToTarget: toTarget.length,
+      keywordAnchorsToTarget: toTarget.filter((l) => classifyAnchor(l.anchor, receiver.domain, receiver.brandTerms) === "keyword").length,
+      receiverLinksThisMonth: perMonth[5],
+      receiverPreviousMonths: perMonth.slice(0, 5),
+    },
     settings,
   );
 }

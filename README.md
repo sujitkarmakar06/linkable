@@ -124,7 +124,8 @@ terminal with their link, so you can click through locally.
 
 ### Testing link checks locally
 Outbound checks refuse private addresses. For local testing only (ignored when `NODE_ENV=production`),
-`FETCH_HOST_OVERRIDES="partner.com=127.0.0.1:4555"` sends requests for that domain to a local server.
+`FETCH_HOST_OVERRIDES="partner.com=127.0.0.1:4555"` sends requests for that domain to a local server
+(`*=127.0.0.1:4555` sends every other host there too; the e2e tests use it so they never reach real sites).
 `AI_FAKE=1` (also ignored in production) returns canned AI responses so flows can be tested without
 an API key or cost. `GSC_FAKE=1` (also ignored in production) replaces Google Search Console: "Connect
 Search Console" succeeds at once, every domain is owned except ones containing `notowner`, every page is
