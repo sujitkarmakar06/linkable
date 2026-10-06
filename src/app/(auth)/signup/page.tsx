@@ -4,6 +4,7 @@ import { googleEnabled } from "@/auth";
 import { googleSignInAction, signupAction } from "@/server/actions/auth";
 import { ActionForm } from "@/components/action-form";
 import { Button, Field, Input } from "@/components/ui";
+import { PasswordInput } from "@/components/password-input";
 
 export const metadata: Metadata = { title: "Create account" };
 
@@ -35,7 +36,7 @@ export default function SignupPage() {
           <Input name="email" type="email" autoComplete="email" required />
         </Field>
         <Field label="Password" hint="At least 10 characters.">
-          <Input name="password" type="password" autoComplete="new-password" minLength={10} required />
+          <PasswordInput name="password" autoComplete="new-password" minLength={10} required />
         </Field>
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" name="terms" required className="mt-1" />

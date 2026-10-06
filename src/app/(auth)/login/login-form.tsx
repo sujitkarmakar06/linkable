@@ -5,6 +5,7 @@ import { useActionState, useState } from "react";
 import { loginAction } from "@/server/actions/auth";
 import { SubmitButton } from "@/components/action-form";
 import { Alert, Field, Input } from "@/components/ui";
+import { PasswordInput } from "@/components/password-input";
 
 export function LoginForm() {
   const [state, action] = useActionState(loginAction, undefined);
@@ -19,7 +20,7 @@ export function LoginForm() {
           <Input name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
         <Field label="Password">
-          <Input name="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+          <PasswordInput name="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
       </div>
       {state?.needsCode && (

@@ -5,6 +5,7 @@ import { ActionForm } from "@/components/action-form";
 import { Card, Field, Input, PageHeader } from "@/components/ui";
 import { TwoFactor } from "./two-factor";
 import { EmailPrefs } from "./email-prefs";
+import { PasswordInput } from "@/components/password-input";
 
 export const metadata: Metadata = { title: "Account" };
 
@@ -25,11 +26,11 @@ export default async function AccountPage() {
           <ActionForm action={changePasswordAction} submit="Update password">
             {user.passwordHash && (
               <Field label="Current password">
-                <Input name="current" type="password" autoComplete="current-password" required />
+                <PasswordInput name="current" autoComplete="current-password" required />
               </Field>
             )}
             <Field label="New password" hint="At least 10 characters.">
-              <Input name="next" type="password" autoComplete="new-password" minLength={10} required />
+              <PasswordInput name="next" autoComplete="new-password" minLength={10} required />
             </Field>
           </ActionForm>
         </Card>
