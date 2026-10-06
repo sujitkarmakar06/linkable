@@ -3,9 +3,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { contentHash, splitTitle } from "@/lib/guestpost";
-import { ANCHOR_SYSTEM, DRAFT_SYSTEM, PLACEMENT_SYSTEM } from "@/lib/ai-prompts";
-import { safeGet, getSitePage } from "@/lib/net";
-import { parseSitemap, summarisePage } from "@/lib/pagetext";
+import { ANCHOR_SYSTEM, DRAFT_SYSTEM, PLACEMENT_SYSTEM, TOPIC_SYSTEM } from "@/lib/ai-prompts";
+import { safeGet } from "@/lib/net";
+import { summarisePage } from "@/lib/pagetext";
+import { sitemapUrls } from "@/server/sitemap";
 import { getSettings } from "@/lib/settings";
 
 export const AI_MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
@@ -21,7 +22,8 @@ export class AiError extends Error {}
 let client: Anthropic | null = null;
 const getClient = () => (client ??= new Anthropic());
 
-type Kind = "anchors" | "placement" | "draft";
+// "topics" is platform work (relevance profiles): recorded for cost tracking, never counted against a workspace quota.
+type Kind = "anchors" | "placement" | "draft" | "topics";
 
 // Free-plan monthly limits: anchors + placement share the "suggestions" quota.
 async function assertQuota(workspaceId: string, kind: Kind) {
@@ -34,7 +36,7 @@ async function assertQuota(workspaceId: string, kind: Kind) {
 }
 
 // `model` is the model that actually answered (a refusal fallback bills at its own rates).
-async function record(workspaceId: string, userId: string, kind: Kind, usage: { input_tokens?: number; output_tokens?: number } | null, extra: { legId?: string; outputHash?: string; model?: string } = {}) {
+async function record(workspaceId: string, userId: string | null, kind: Kind, usage: { input_tokens?: number; output_tokens?: number } | null, extra: { legId?: string; outputHash?: string; model?: string } = {}) {
   const { model, ...rest } = extra;
   extra = rest;
   await db.aiUsage.create({ data: { workspaceId, userId, kind, model: fakeMode() ? "fake" : (model ?? AI_MODEL), inputTokens: usage?.input_tokens ?? 0, outputTokens: usage?.output_tokens ?? 0, ...extra } });
@@ -135,39 +137,6 @@ export async function suggestAnchors(a: { workspaceId: string; userId: string; s
 const PlacementSchema = z.object({ pages: z.array(z.object({ url: z.string(), reason: z.string(), sentence: z.string() })) });
 export type PlacementSuggestion = z.infer<typeof PlacementSchema>["pages"][number];
 
-async function sitemapUrls(domain: string, max = 300): Promise<string[]> {
-  const urls = new Set<string>();
-  const onDomain = (u: string) => {
-    try {
-      const h = new URL(u).hostname.replace(/^www\./, "");
-      return h === domain || h.endsWith(`.${domain}`);
-    } catch {
-      return false;
-    }
-  };
-  let queue: string[] = [];
-  try {
-    const root = await getSitePage(domain, "/sitemap.xml");
-    if (root.ok) {
-      const p = parseSitemap(root.body);
-      p.urls.filter(onDomain).forEach((u) => urls.add(u));
-      queue = p.sitemaps.filter(onDomain).slice(0, 5);
-    }
-  } catch {
-    /* fall through */
-  }
-  for (const sm of queue) {
-    if (urls.size >= max) break;
-    try {
-      const res = await safeGet(sm);
-      if (res.ok) parseSitemap(res.body).urls.filter(onDomain).forEach((u) => urls.add(u));
-    } catch {
-      /* skip broken child sitemaps */
-    }
-  }
-  return [...urls].slice(0, max);
-}
-
 export async function suggestPlacement(a: { workspaceId: string; userId: string; legId: string }): Promise<PlacementSuggestion[]> {
   await assertQuota(a.workspaceId, "placement");
   const leg = await db.dealLeg.findUniqueOrThrow({ where: { id: a.legId }, include: { fromSite: true } });
@@ -248,4 +217,26 @@ export async function aiUsageThisMonth(workspaceId: string) {
   const rows = await db.aiUsage.groupBy({ by: ["kind"], where: { workspaceId, createdAt: { gte: since } }, _count: true });
   const n = (k: string) => rows.find((r) => r.kind === k)?._count ?? 0;
   return { suggestions: n("anchors") + n("placement"), drafts: n("draft") };
+}
+
+// ---------------------------------------------------------------------------
+// Topic keywords for relevance scoring (best effort: null when AI is off or fails)
+// ---------------------------------------------------------------------------
+
+const TopicSchema = z.object({ summary: z.string(), keywords: z.array(z.string()) });
+
+export async function topicKeywords(workspaceId: string, label: string, pageText: string): Promise<{ summary: string; keywords: string[] } | null> {
+  if (!aiEnabled() || !pageText.trim()) return null;
+  try {
+    if (fakeMode()) {
+      await record(workspaceId, null, "topics", null);
+      return { summary: `Pages about ${label}.`, keywords: [] };
+    }
+    const { data, usage, model } = await structured(TopicSchema, TOPIC_SYSTEM, `<${label}>\n${pageText.slice(0, 6000)}\n</${label}>`);
+    await record(workspaceId, null, "topics", usage, { model });
+    return { summary: data.summary.slice(0, 300), keywords: data.keywords.map((k) => k.trim()).filter((k) => k && k.length <= 60).slice(0, 15) };
+  } catch (err) {
+    console.error("[ai topics]", (err as Error).message);
+    return null;
+  }
 }

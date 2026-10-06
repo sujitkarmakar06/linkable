@@ -7,7 +7,7 @@ import { getSettings } from "@/lib/settings";
 const features = (minDr: number, months: number, everyDays: number) => [
   { title: "No reciprocal footprint", body: "You give links from one site and receive them on another. Nobody links straight back, and the footprint guard blocks shared hosting, shared owners and repeat pairs." },
   { title: "Fair credits", body: "Give a link, earn credits. Spend credits to get one. Prices follow DR tiers, so a DR 70 link costs more than a DR 35 link." },
-  { title: "Links that stay live", body: `Every placed link is checked every ${everyDays} days for ${months} months. Credits are held in escrow and released in stages, and early removals are penalised.` },
+  { title: "Links that stay live", body: `Every placed link is checked every ${everyDays} days for ${months} months. Credits are held in escrow and paid out in stages once Google has indexed the page, and early removals are penalised.` },
   { title: "Verified, quality sites", body: `Every site proves ownership and passes admin review. Sites must be DR ${minDr} or higher, and spam or PBN networks are filtered out.` },
 ];
 

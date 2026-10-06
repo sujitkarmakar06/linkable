@@ -3,7 +3,7 @@
 
 export type NotifyCategory = "urgent" | "deals" | "messages" | "sites";
 
-const URGENT = [/^dispute\./, /^leg\.(failing|removed|overdue|not_found)$/, /^admin\./, /^workspace\./];
+const URGENT = [/^dispute\./, /^leg\.(failing|removed|overdue|not_found|index_reminder)$/, /^admin\./, /^workspace\./, /^gsc\./];
 
 export function categoryOf(kind: string): NotifyCategory {
   if (URGENT.some((re) => re.test(kind))) return "urgent";

@@ -17,6 +17,7 @@ export default function PrivacyPage() {
         <li><strong>Workspace and marketplace data:</strong> workspaces, team members and roles, websites you list, verification records, link requests, proposals, deals, messages, reviews, disputes and credit history.</li>
         <li><strong>Website data:</strong> public information about listed sites and pages, including metrics from SEO providers, IP addresses of sites, and the results of our link checks.</li>
         <li><strong>Content you submit:</strong> guest posts and any text you send to our AI tools.</li>
+        <li><strong>Google Search Console data:</strong> if you connect Search Console for a site, we keep read-only access (an encrypted token) until you disconnect. We use it to confirm that pages carrying links are indexed by Google, and to read search clicks, impressions and average position for pages that received links. Besides the token, we store the Google account email, the matching Search Console property names, and those numbers and indexing results, not your other Search Console data.</li>
         <li><strong>Security and usage data:</strong> IP address and timestamps of sign-in, sign-up and password-reset attempts (kept for rate limiting and fraud prevention), and audit logs of important account actions.</li>
       </ul>
 
@@ -32,7 +33,7 @@ export default function PrivacyPage() {
       <p>
         Other users see the information needed to trade with you (your workspace name, listed sites and their metrics, deal details, messages and reviews). We use processors who
         handle data on our behalf: [hosting - Vercel], [database - Neon], [email - Resend], [AI - Anthropic, for AI suggestions and drafts], [SEO metrics - Ahrefs], [Google, for
-        sign-in and Search Console verification]. We do not sell personal data.
+        sign-in and Search Console]. We do not sell personal data.
       </p>
 
       <h2>4. International transfers</h2>

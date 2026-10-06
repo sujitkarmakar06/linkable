@@ -8,6 +8,7 @@ import { randomToken } from "@/lib/crypto";
 import { normalizeDomain } from "@/lib/domain";
 import { isBannedNiche, isNiche } from "@/lib/niches";
 import { getSettings } from "@/lib/settings";
+import { disconnect } from "@/server/gsc";
 import { markVerified, recordVerifyFailure, runVerification } from "@/server/sites";
 import { requireMembership } from "@/server/session";
 import type { FormState } from "./types";
@@ -19,6 +20,11 @@ const siteFields = z
     maxOutboundPerMonth: z.coerce.number().int().min(1, "At least 1").max(20, "At most 20 a month"),
     canGive: z.string().optional().transform((v) => v === "on"),
     canReceive: z.string().optional().transform((v) => v === "on"),
+    brandTerms: z
+      .string()
+      .optional()
+      .transform((v) => [...new Set((v ?? "").split(",").map((b) => b.trim()).filter(Boolean))])
+      .refine((v) => v.length <= 5 && v.every((b) => b.length <= 40), "Up to 5 brand names, 40 characters each"),
   })
   .refine((v) => v.canGive || v.canReceive, { message: "A site must give links, receive links, or both." });
 
@@ -89,4 +95,12 @@ export async function deleteSiteAction(form: FormData) {
   await db.auditLog.create({ data: { actorId: user.id, workspaceId: workspace.id, action: "site.deleted", meta: { domain: site.domain } } });
   revalidatePath("/app/sites");
   redirect("/app/sites");
+}
+
+export async function disconnectGscAction(form: FormData) {
+  const { user, workspace, site } = await ownSite(String(form.get("siteId")));
+  await disconnect(site.id);
+  await db.auditLog.create({ data: { actorId: user.id, workspaceId: workspace.id, action: "site.gsc_disconnected", target: site.id } });
+  revalidatePath(`/app/sites/${site.id}`);
+  redirect(`/app/sites/${site.id}?gsc=disconnected`);
 }
